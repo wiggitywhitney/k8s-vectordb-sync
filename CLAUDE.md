@@ -2,13 +2,17 @@
 
 Kubernetes controller (Go/Kubebuilder) that watches cluster resources via dynamic informers and syncs instance metadata to cluster-whisperer's REST API. Follows Viktor Farcic's [dot-ai-controller](https://github.com/vfarcic/dot-ai-controller) architecture.
 
-## YOLO Workflow Mode
+## YOLO Workflow Mode (ACTIVE)
 
-Proceed without trivial confirmations. Never ask "Shall I continue?", "Do you want to proceed?", or "Ready to start?" — just do the work. The user will interrupt if needed.
+This repo uses YOLO workflow mode. Proceed without trivial confirmations. Never ask "Shall I continue?", "Do you want to proceed?", or "Ready to start?" — just do the work. The user will interrupt if needed.
 
 **Do ask** when something is ambiguous, when a decision has major implications, or when you need to deviate from what the PRD explicitly defines. This follows the same principle as Getting Help: ask for clarification rather than making assumptions.
 
 **CodeRabbit reviews are REQUIRED before merging any PR.** Autonomously resolve non-architectural comments, summarize changes for the user, and await explicit human approval before merging. This is non-negotiable.
+
+## Autonomous PRD Workflow
+
+This repo uses autonomous workflow chaining. After completing a PRD task, proceed directly: implement the work, run `/prd-update-progress`, then `/prd-next` for the next task. Continue the cycle without pausing for confirmation. Only pause for ambiguous decisions, architectural choices, or PRD deviations.
 
 ## CodeRabbit Reviews (MANDATORY)
 
