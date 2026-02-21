@@ -1,5 +1,5 @@
 <!--
-Thank you for contributing to DevOps AI Toolkit! Please fill out this template to help us review your changes.
+Thank you for contributing to k8s-vectordb-sync! Please fill out this template to help us review your changes.
 -->
 
 ## Description
@@ -53,6 +53,8 @@ Examples:
 - `chore:` - Maintenance tasks (dependencies, build, CI/CD)
 - `perf:` - Performance improvements
 
+**Note:** Add `!` after the type/scope to indicate a breaking change (e.g., `feat!:` or `feat(api)!:`).
+
 **Breaking changes:**
 ```text
 feat(api)!: remove deprecated v1 endpoints
@@ -85,7 +87,6 @@ See MIGRATION.md for upgrade guide.
 - [ ] Documentation updated (if applicable)
 - [ ] Code comments added for complex logic
 - [ ] API documentation updated (if API changes)
-- [ ] [CONTRIBUTING.md](CONTRIBUTING.md) guidelines followed
 
 ## Security Checklist
 <!-- Complete if your changes affect security -->
