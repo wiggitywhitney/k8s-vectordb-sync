@@ -1,6 +1,6 @@
 # PRD #1: Kubernetes Resource Sync Controller
 
-**Status**: Not Started
+**Status**: In Progress
 **Created**: 2026-02-20
 **GitHub Issue**: [#1](https://github.com/wiggitywhitney/k8s-vectordb-sync/issues/1)
 
@@ -61,7 +61,7 @@ Our version will follow this pattern but start simpler — environment variable 
 
 ## Milestones
 
-- [ ] **M1**: Project Setup & Basic Watching
+- [x] **M1**: Project Setup & Basic Watching
   - Initialize Go project with Kubebuilder
   - Implement dynamic informers for configurable resource types
   - Extract metadata per resource instance (namespace, name, kind, apiVersion, labels, description annotations)
@@ -200,4 +200,6 @@ Environment variable configuration for the POC (CRD-based config is a future enh
 
 ## Progress Log
 
-*Progress will be logged here as milestones are completed.*
+| Date | Milestone | Notes |
+|------|-----------|-------|
+| 2026-02-21 | M1 Complete | Kubebuilder scaffold (Go 1.26, controller-runtime v0.21.0), dynamic informers via discovery API, metadata extraction (namespace/name/kind/apiVersion/labels/filtered-annotations), resource filtering (allowlist/blocklist with default exclusions), console event logging, 35 unit tests passing |
