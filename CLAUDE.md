@@ -14,6 +14,8 @@ This repo uses YOLO workflow mode. Proceed without trivial confirmations. Never 
 
 This repo uses autonomous workflow chaining. After completing a PRD task, proceed directly: implement the work, run `/prd-update-progress`, then `/prd-next` for the next task. Continue the cycle without pausing for confirmation. Only pause for ambiguous decisions, architectural choices, or PRD deviations.
 
+**Context clearing:** After any successful completion of `/prd-update-progress`, clear conversation context before starting the next task. This keeps context windows fresh and prevents stale state from accumulating across milestones.
+
 ## CodeRabbit Reviews (MANDATORY)
 
 Every PR must go through CodeRabbit review before merge. This is a hard requirement, not optional.

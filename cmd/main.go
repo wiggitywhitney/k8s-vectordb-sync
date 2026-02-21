@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
+	"github.com/wiggitywhitney/k8s-vectordb-sync/internal/client"
 	"github.com/wiggitywhitney/k8s-vectordb-sync/internal/config"
 	"github.com/wiggitywhitney/k8s-vectordb-sync/internal/controller"
 )
@@ -119,8 +120,17 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Log batched payloads (M3 will replace this with the REST client)
-	go logPayloads(debouncer)
+	// REST client sends batched payloads to cluster-whisperer
+	restClient := client.New(
+		ctrl.Log.WithName("rest-client"),
+		cfg.RESTEndpoint,
+	)
+
+	// Add sender as a runnable that consumes payloads and POSTs them
+	if err := mgr.Add(wrapSender(restClient, debouncer)); err != nil {
+		setupLog.Error(err, "Failed to add REST sender to manager")
+		os.Exit(1)
+	}
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		setupLog.Error(err, "Failed to set up health check")
@@ -166,14 +176,31 @@ func (r *debouncerRunnable) Start(ctx context.Context) error {
 	return nil
 }
 
-// logPayloads reads batched payloads and logs them.
-// M3 will replace this with the REST client that POSTs to cluster-whisperer.
-func logPayloads(debouncer *controller.DebounceBuffer) {
-	log := ctrl.Log.WithName("payloads")
-	for payload := range debouncer.Payloads {
-		log.Info("Sync payload ready",
+// senderRunnable reads batched payloads from the debouncer and POSTs them
+// to cluster-whisperer via the REST client.
+type senderRunnable struct {
+	client    *client.RESTClient
+	debouncer *controller.DebounceBuffer
+}
+
+func wrapSender(c *client.RESTClient, d *controller.DebounceBuffer) *senderRunnable {
+	return &senderRunnable{client: c, debouncer: d}
+}
+
+func (s *senderRunnable) Start(ctx context.Context) error {
+	log := ctrl.Log.WithName("sender")
+	for payload := range s.debouncer.Payloads {
+		if err := s.client.Send(ctx, payload); err != nil {
+			log.Error(err, "Failed to send payload",
+				"upserts", len(payload.Upserts),
+				"deletes", len(payload.Deletes),
+			)
+			continue
+		}
+		log.V(1).Info("Payload sent",
 			"upserts", len(payload.Upserts),
 			"deletes", len(payload.Deletes),
 		)
 	}
+	return nil
 }
