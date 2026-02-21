@@ -1,7 +1,3 @@
-<!--
-Thank you for contributing to k8s-vectordb-sync! Please fill out this template to help us review your changes.
--->
-
 ## Description
 <!-- Provide a clear and concise description of your changes -->
 
