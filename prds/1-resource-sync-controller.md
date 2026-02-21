@@ -69,7 +69,7 @@ Our version will follow this pattern but start simpler — environment variable 
   - Console output showing add/update/delete events as they happen
   - Unit tests for metadata extraction and resource filtering
 
-- [ ] **M2**: Debouncing & Batching
+- [x] **M2**: Debouncing & Batching
   - Debounce rapid changes with configurable window (default 10 seconds)
   - Last-state-wins deduplication (multiple updates to same resource → single event)
   - Batch multiple changes into a single payload
@@ -203,3 +203,4 @@ Environment variable configuration for the POC (CRD-based config is a future enh
 | Date | Milestone | Notes |
 |------|-----------|-------|
 | 2026-02-21 | M1 Complete | Kubebuilder scaffold (Go 1.26, controller-runtime v0.21.0), dynamic informers via discovery API, metadata extraction (namespace/name/kind/apiVersion/labels/filtered-annotations), resource filtering (allowlist/blocklist with default exclusions), console event logging, 35 unit tests passing |
+| 2026-02-21 | M2 Complete | DebounceBuffer with per-resource timers, last-state-wins dedup, configurable flush interval/batch size, deletes bypass debounce (forwarded immediately), SyncPayload with separate upserts/deletes, graceful shutdown flush, 9 debounce tests passing |

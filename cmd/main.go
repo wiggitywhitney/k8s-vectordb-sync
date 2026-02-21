@@ -107,8 +107,20 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Start a goroutine to log events from the watcher (M1 console output)
-	go logEvents(watcher)
+	// Create debounce buffer that batches watcher events
+	debouncer := controller.NewDebounceBuffer(
+		ctrl.Log.WithName("debounce"),
+		cfg,
+	)
+
+	// Add debounce buffer as a runnable
+	if err := mgr.Add(wrapDebouncer(debouncer, watcher)); err != nil {
+		setupLog.Error(err, "Failed to add debouncer to manager")
+		os.Exit(1)
+	}
+
+	// Log batched payloads (M3 will replace this with the REST client)
+	go logPayloads(debouncer)
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		setupLog.Error(err, "Failed to set up health check")
@@ -139,18 +151,29 @@ func (r *watcherRunnable) Start(ctx context.Context) error {
 	return r.watcher.Start(ctx)
 }
 
-// logEvents reads from the watcher's event channel and logs each event.
-// This is the M1 console output — later milestones will replace this with
-// the debouncer/batcher that forwards events to the REST API.
-func logEvents(watcher *controller.Watcher) {
-	log := ctrl.Log.WithName("events")
-	for event := range watcher.Events {
-		log.Info("Resource change detected",
-			"type", event.Type,
-			"id", event.Instance.ID,
-			"kind", event.Instance.Kind,
-			"namespace", event.Instance.Namespace,
-			"name", event.Instance.Name,
+// debouncerRunnable wraps the DebounceBuffer to implement manager.Runnable.
+type debouncerRunnable struct {
+	debouncer *controller.DebounceBuffer
+	watcher   *controller.Watcher
+}
+
+func wrapDebouncer(d *controller.DebounceBuffer, w *controller.Watcher) *debouncerRunnable {
+	return &debouncerRunnable{debouncer: d, watcher: w}
+}
+
+func (r *debouncerRunnable) Start(ctx context.Context) error {
+	r.debouncer.Run(ctx, r.watcher.Events)
+	return nil
+}
+
+// logPayloads reads batched payloads and logs them.
+// M3 will replace this with the REST client that POSTs to cluster-whisperer.
+func logPayloads(debouncer *controller.DebounceBuffer) {
+	log := ctrl.Log.WithName("payloads")
+	for payload := range debouncer.Payloads {
+		log.Info("Sync payload ready",
+			"upserts", len(payload.Upserts),
+			"deletes", len(payload.Deletes),
 		)
 	}
 }
