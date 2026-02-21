@@ -1,0 +1,12 @@
+k8s-vectordb-sync has been deployed.
+
+The controller is watching Kubernetes resources and syncing metadata to:
+  {{ .Values.config.restEndpoint }}
+
+To trigger a manual resync:
+  kubectl port-forward svc/{{ include "k8s-vectordb-sync.fullname" . }} {{ .Values.service.apiPort }}:{{ .Values.service.apiPort }} -n {{ .Release.Namespace }}
+  curl -X POST http://localhost:{{ .Values.service.apiPort }}/api/v1/resync
+
+To check controller health:
+  kubectl port-forward svc/{{ include "k8s-vectordb-sync.fullname" . }} {{ .Values.service.healthPort }}:{{ .Values.service.healthPort }} -n {{ .Release.Namespace }}
+  curl http://localhost:{{ .Values.service.healthPort }}/healthz

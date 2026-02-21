@@ -1,0 +1,96 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "k8s-vectordb-sync.fullname" . }}
+  labels:
+    {{- include "k8s-vectordb-sync.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "k8s-vectordb-sync.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "k8s-vectordb-sync.labels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "k8s-vectordb-sync.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      terminationGracePeriodSeconds: 10
+      containers:
+        - name: manager
+          image: {{ include "k8s-vectordb-sync.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - /manager
+          args:
+            - --health-probe-bind-address={{ .Values.healthProbeBindAddress }}
+            {{- if .Values.leaderElect }}
+            - --leader-elect
+            {{- end }}
+          env:
+            - name: REST_ENDPOINT
+              value: {{ .Values.config.restEndpoint | quote }}
+            - name: DEBOUNCE_WINDOW_MS
+              value: {{ .Values.config.debounceWindowMs | quote }}
+            - name: BATCH_FLUSH_INTERVAL_MS
+              value: {{ .Values.config.batchFlushIntervalMs | quote }}
+            - name: BATCH_MAX_SIZE
+              value: {{ .Values.config.batchMaxSize | quote }}
+            - name: RESYNC_INTERVAL_MIN
+              value: {{ .Values.config.resyncIntervalMin | quote }}
+            - name: WATCH_RESOURCE_TYPES
+              value: {{ .Values.config.watchResourceTypes | quote }}
+            - name: EXCLUDE_RESOURCE_TYPES
+              value: {{ .Values.config.excludeResourceTypes | quote }}
+            - name: API_BIND_ADDRESS
+              value: {{ .Values.config.apiBindAddress | quote }}
+            - name: LOG_LEVEL
+              value: {{ .Values.config.logLevel | quote }}
+          ports:
+            - name: health
+              containerPort: 8081
+              protocol: TCP
+            - name: api
+              containerPort: 8082
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

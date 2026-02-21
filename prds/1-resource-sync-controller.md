@@ -51,12 +51,12 @@ Our version will follow this pattern but start simpler — environment variable 
 
 ## Success Criteria
 
-- [ ] Controller watches resource instances via Kubernetes informers (event-driven, not polling)
-- [ ] Changes (create/update/delete) are debounced and batched before sending
-- [ ] Controller POSTs instance metadata to cluster-whisperer REST API
+- [x] Controller watches resource instances via Kubernetes informers (event-driven, not polling)
+- [x] Changes (create/update/delete) are debounced and batched before sending
+- [x] Controller POSTs instance metadata to cluster-whisperer REST API
 - [ ] cluster-whisperer REST endpoint receives metadata and stores in vector DB
-- [ ] Periodic full resync ensures eventual consistency
-- [ ] Controller deploys in-cluster via Helm chart
+- [x] Periodic full resync ensures eventual consistency
+- [x] Controller deploys in-cluster via Helm chart
 - [ ] End-to-end: deploy a resource → controller detects → vector DB updated → agent can find it
 
 ## Milestones
@@ -89,7 +89,7 @@ Our version will follow this pattern but start simpler — environment variable 
   - Health and readiness endpoints (`/healthz`, `/readyz`)
   - Graceful shutdown (drain in-flight batches before exit with fresh context)
 
-- [ ] **M5**: Deployment & Configuration
+- [x] **M5**: Deployment & Configuration
   - Dockerfile (multi-arch: amd64 + arm64)
   - Helm chart with RBAC (ClusterRole: get/list/watch on configurable resource types)
   - Configuration via environment variables (REST endpoint URL, debounce window, resync interval, resource type filter)
@@ -208,3 +208,4 @@ Environment variable configuration for the POC (CRD-based config is a future enh
 | 2026-02-21 | M2 Complete | DebounceBuffer with per-resource timers, last-state-wins dedup, configurable flush interval/batch size, deletes bypass debounce (forwarded immediately), SyncPayload with separate upserts/deletes, graceful shutdown flush, 9 debounce tests passing |
 | 2026-02-21 | M3 Partial (k8s-vectordb-sync side) | REST client (`internal/client/rest.go`) with JSON POST, exponential backoff retry (configurable max retries, initial/max delay), 4xx no-retry vs 5xx/timeout retry, context cancellation support, empty payload skip. Wired into cmd/main.go replacing logPayloads placeholder. 8 contract tests passing. Cluster-whisperer REST endpoint (other repo) still needed to complete M3. |
 | 2026-02-21 | M4 Complete | Resync interval default changed to 24h (1440min). Ad-hoc resync via `POST /api/v1/resync` endpoint (`internal/api/server.go`). Watcher.TriggerResync() re-lists all watched GVRs and emits ADD events. API server wired as manager.Runnable on :8082. Graceful shutdown fixed: sender uses fresh context to drain final payloads. Health probes already present from Kubebuilder scaffold. Informer reconnection handled by controller-runtime. 11 new tests (6 watcher, 5 API), 60 total passing. |
+| 2026-02-21 | M5 Complete | Dockerfile already existed from Kubebuilder scaffold (multi-stage: Go 1.26 builder + distroless, non-root 65532). Helm chart created (`charts/k8s-vectordb-sync/`): Deployment, ServiceAccount, ClusterRole (`*/*` get/list/watch for dynamic informers), ClusterRoleBinding, Service (health :8081, resync API :8082). All 9 env vars wired through values.yaml. Kustomize RBAC role.yaml fixed from pods-only to broad read access. GitHub Actions CI workflow (`.github/workflows/build.yml`): tests, multi-arch buildx (amd64+arm64), push to ghcr.io with semver/branch/sha tags, GHA build cache. 60 tests still passing. |

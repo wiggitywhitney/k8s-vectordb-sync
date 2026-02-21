@@ -1,0 +1,85 @@
+image:
+  repository: ghcr.io/wiggitywhitney/k8s-vectordb-sync
+  tag: ""  # Defaults to chart appVersion
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+# Controller configuration (maps to environment variables)
+config:
+  # cluster-whisperer REST endpoint URL
+  restEndpoint: "http://localhost:3000/api/v1/instances/sync"
+  # Debounce window per resource in milliseconds
+  debounceWindowMs: 10000
+  # Maximum time before flushing a batch in milliseconds
+  batchFlushIntervalMs: 5000
+  # Maximum batch size before flush
+  batchMaxSize: 50
+  # Full resync interval in minutes (default: 24 hours)
+  resyncIntervalMin: 1440
+  # Comma-separated resource types to watch (empty = all discoverable)
+  watchResourceTypes: ""
+  # Comma-separated resource types to exclude
+  excludeResourceTypes: "events,leases,endpointslices"
+  # Bind address for the API server (resync trigger endpoint)
+  apiBindAddress: ":8082"
+  # Logging verbosity
+  logLevel: "info"
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+# RBAC rules for the controller.
+# The controller uses dynamic informers and needs broad read access
+# to discover and watch resource types across the cluster.
+rbac:
+  create: true
+  rules:
+    - apiGroups: ["*"]
+      resources: ["*"]
+      verbs: ["get", "list", "watch"]
+
+# Health probe port (controller-runtime flag)
+healthProbeBindAddress: ":8081"
+
+# Leader election for HA deployments
+leaderElect: false
+
+replicaCount: 1
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 128Mi
+  requests:
+    cpu: 10m
+    memory: 64Mi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+
+# Service for health probes and resync API
+service:
+  type: ClusterIP
+  healthPort: 8081
+  apiPort: 8082
