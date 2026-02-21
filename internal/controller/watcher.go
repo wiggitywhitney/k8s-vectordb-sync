@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/discovery"
@@ -48,6 +49,10 @@ type Watcher struct {
 	// Events channel for downstream consumers (debouncer/batcher)
 	Events chan ResourceEvent
 
+	// watchedGVRs is the set of GVRs discovered and watched during Start().
+	// Used by TriggerResync to re-list all resources on demand.
+	watchedGVRs []schema.GroupVersionResource
+
 	factory  dynamicinformer.DynamicSharedInformerFactory
 	stopCh   chan struct{}
 	stopOnce sync.Once
@@ -81,13 +86,13 @@ func NewWatcher(log logr.Logger, restConfig *rest.Config, cfg config.Config) (*W
 // Start discovers watchable resources, sets up informers, and begins watching.
 // It blocks until the context is cancelled.
 func (w *Watcher) Start(ctx context.Context) error {
-	gvrs := w.discoverResources()
+	w.watchedGVRs = w.discoverResources()
 
-	w.log.Info("Discovered watchable resources", "count", len(gvrs))
+	w.log.Info("Discovered watchable resources", "count", len(w.watchedGVRs))
 
 	w.factory = dynamicinformer.NewDynamicSharedInformerFactory(w.dynamicClient, w.resyncInterval)
 
-	for _, gvr := range gvrs {
+	for _, gvr := range w.watchedGVRs {
 		informer := w.factory.ForResource(gvr)
 		_, err := informer.Informer().AddEventHandler(w.makeEventHandler())
 		if err != nil {
@@ -242,6 +247,40 @@ func mapsEqual(a, b map[string]string) bool {
 		}
 	}
 	return true
+}
+
+// TriggerResync performs a full re-list of all watched resource types and
+// emits ADD events for every resource found. This pushes complete cluster
+// state through the debounce → REST pipeline, ensuring downstream
+// consistency. Safe to call while informers are running.
+func (w *Watcher) TriggerResync(ctx context.Context) (int, error) {
+	w.log.Info("Starting ad-hoc resync", "gvrCount", len(w.watchedGVRs))
+	total := 0
+
+	for _, gvr := range w.watchedGVRs {
+		list, err := w.dynamicClient.Resource(gvr).List(ctx, metav1.ListOptions{})
+		if err != nil {
+			w.log.Error(err, "Failed to list resource during resync", "resource", gvr.String())
+			continue
+		}
+
+		for i := range list.Items {
+			instance := metadata.Extract(&list.Items[i])
+			w.emit(ResourceEvent{Type: EventAdd, Instance: instance})
+			total++
+		}
+
+		w.log.V(1).Info("Resynced resource type",
+			"resource", gvr.String(), "count", len(list.Items))
+	}
+
+	w.log.Info("Ad-hoc resync complete", "totalResources", total)
+	return total, nil
+}
+
+// WatchedGVRCount returns the number of GVRs being watched (for health/readiness checks).
+func (w *Watcher) WatchedGVRCount() int {
+	return len(w.watchedGVRs)
 }
 
 // MetadataChanged exposes the change detection logic for testing.

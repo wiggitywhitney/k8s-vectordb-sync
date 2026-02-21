@@ -30,6 +30,9 @@ type Config struct {
 	// Resource types to exclude from watching
 	ExcludeResourceTypes []string
 
+	// Bind address for the API server (resync trigger endpoint)
+	APIBindAddress string
+
 	// Logging verbosity level
 	LogLevel string
 }
@@ -41,9 +44,10 @@ func Load() Config {
 		DebounceWindow:       envDurationMsOrDefault("DEBOUNCE_WINDOW_MS", 10000),
 		BatchFlushInterval:   envDurationMsOrDefault("BATCH_FLUSH_INTERVAL_MS", 5000),
 		BatchMaxSize:         envIntOrDefault("BATCH_MAX_SIZE", 50),
-		ResyncInterval:       envDurationMinOrDefault("RESYNC_INTERVAL_MIN", 60),
+		ResyncInterval:       envDurationMinOrDefault("RESYNC_INTERVAL_MIN", 1440),
 		WatchResourceTypes:   envCSVOrDefault("WATCH_RESOURCE_TYPES", nil),
 		ExcludeResourceTypes: envCSVOrDefault("EXCLUDE_RESOURCE_TYPES", []string{"events", "leases", "endpointslices"}),
+		APIBindAddress:       envOrDefault("API_BIND_ADDRESS", ":8082"),
 		LogLevel:             envOrDefault("LOG_LEVEL", "info"),
 	}
 }

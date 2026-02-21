@@ -29,8 +29,8 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.BatchMaxSize != 50 {
 		t.Errorf("BatchMaxSize = %d, want 50", cfg.BatchMaxSize)
 	}
-	if cfg.ResyncInterval != 60*time.Minute {
-		t.Errorf("ResyncInterval = %v, want 60m", cfg.ResyncInterval)
+	if cfg.ResyncInterval != 1440*time.Minute {
+		t.Errorf("ResyncInterval = %v, want 1440m (24h)", cfg.ResyncInterval)
 	}
 	if len(cfg.WatchResourceTypes) != 0 {
 		t.Errorf("WatchResourceTypes = %v, want empty", cfg.WatchResourceTypes)

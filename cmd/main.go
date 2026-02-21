@@ -20,6 +20,7 @@ import (
 	"context"
 	"flag"
 	"os"
+	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -33,6 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
+	"github.com/wiggitywhitney/k8s-vectordb-sync/internal/api"
 	"github.com/wiggitywhitney/k8s-vectordb-sync/internal/client"
 	"github.com/wiggitywhitney/k8s-vectordb-sync/internal/config"
 	"github.com/wiggitywhitney/k8s-vectordb-sync/internal/controller"
@@ -74,6 +76,7 @@ func main() {
 		"resyncInterval", cfg.ResyncInterval,
 		"watchResourceTypes", cfg.WatchResourceTypes,
 		"excludeResourceTypes", cfg.ExcludeResourceTypes,
+		"apiBindAddress", cfg.APIBindAddress,
 		"logLevel", cfg.LogLevel,
 	)
 
@@ -129,6 +132,17 @@ func main() {
 	// Add sender as a runnable that consumes payloads and POSTs them
 	if err := mgr.Add(wrapSender(restClient, debouncer)); err != nil {
 		setupLog.Error(err, "Failed to add REST sender to manager")
+		os.Exit(1)
+	}
+
+	// API server for ad-hoc operations (resync trigger)
+	apiServer := api.NewServer(
+		ctrl.Log.WithName("api"),
+		cfg.APIBindAddress,
+		watcher,
+	)
+	if err := mgr.Add(apiServer); err != nil {
+		setupLog.Error(err, "Failed to add API server to manager")
 		os.Exit(1)
 	}
 
@@ -190,7 +204,35 @@ func wrapSender(c *client.RESTClient, d *controller.DebounceBuffer) *senderRunna
 func (s *senderRunnable) Start(ctx context.Context) error {
 	log := ctrl.Log.WithName("sender")
 	for payload := range s.debouncer.Payloads {
-		if err := s.client.Send(ctx, payload); err != nil {
+		// Use the manager context while it's active. When it cancels,
+		// the debouncer flushes remaining payloads and closes the channel.
+		// For those final payloads, use a short-lived context so they
+		// can still be sent during graceful shutdown.
+		sendCtx := ctx
+		if ctx.Err() != nil {
+			drainCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			sendCtx = drainCtx
+			log.Info("Draining final payload during shutdown",
+				"upserts", len(payload.Upserts),
+				"deletes", len(payload.Deletes),
+			)
+			err := s.client.Send(sendCtx, payload)
+			cancel()
+			if err != nil {
+				log.Error(err, "Failed to send payload during shutdown",
+					"upserts", len(payload.Upserts),
+					"deletes", len(payload.Deletes),
+				)
+			} else {
+				log.V(1).Info("Payload sent during shutdown",
+					"upserts", len(payload.Upserts),
+					"deletes", len(payload.Deletes),
+				)
+			}
+			continue
+		}
+
+		if err := s.client.Send(sendCtx, payload); err != nil {
 			log.Error(err, "Failed to send payload",
 				"upserts", len(payload.Upserts),
 				"deletes", len(payload.Deletes),

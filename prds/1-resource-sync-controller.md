@@ -83,11 +83,11 @@ Our version will follow this pattern but start simpler — environment variable 
   - Handle connection errors, retries, and timeouts
   - Integration tests for the full POST → store flow
 
-- [ ] **M4**: Periodic Resync & Reliability
-  - Full resync on configurable interval (default 60 minutes)
-  - Reconnection logic when informer watches drop
+- [x] **M4**: Periodic Resync & Reliability
+  - Full resync on configurable interval (default 24 hours), plus ad-hoc HTTP trigger (`POST /api/v1/resync`)
+  - Reconnection logic when informer watches drop (built into controller-runtime SharedInformer)
   - Health and readiness endpoints (`/healthz`, `/readyz`)
-  - Graceful shutdown (drain in-flight batches before exit)
+  - Graceful shutdown (drain in-flight batches before exit with fresh context)
 
 - [ ] **M5**: Deployment & Configuration
   - Dockerfile (multi-arch: amd64 + arm64)
@@ -164,9 +164,10 @@ Environment variable configuration for the POC (CRD-based config is a future enh
 | `DEBOUNCE_WINDOW_MS` | `10000` | Debounce window per resource |
 | `BATCH_FLUSH_INTERVAL_MS` | `5000` | Maximum time before flushing a batch |
 | `BATCH_MAX_SIZE` | `50` | Maximum batch size before flush |
-| `RESYNC_INTERVAL_MIN` | `60` | Full resync interval in minutes |
+| `RESYNC_INTERVAL_MIN` | `1440` | Full resync interval in minutes (default: daily) |
 | `WATCH_RESOURCE_TYPES` | *(empty = all)* | Comma-separated resource types to watch |
 | `EXCLUDE_RESOURCE_TYPES` | `events,leases,endpointslices` | Comma-separated types to exclude |
+| `API_BIND_ADDRESS` | `:8082` | Bind address for the API server (resync trigger) |
 | `LOG_LEVEL` | `info` | Logging verbosity |
 
 ## Dependencies
@@ -195,6 +196,7 @@ Environment variable configuration for the POC (CRD-based config is a future enh
 | 2026-02-20 | Environment variables over CRDs for configuration | CRDs add complexity (defining, generating, reconciling). Env vars are simpler for a POC and sufficient for the demo. CRD config can be added later. |
 | 2026-02-20 | Separate repo over subdirectory in cluster-whisperer | Different language (Go vs TypeScript), different build tooling (Kubebuilder/Make vs tsc/npm), different deployment model (in-cluster pod vs local CLI). Kubebuilder wants to own the repo root. |
 | 2026-02-20 | Immediate delete forwarding (no debounce) | Stale data in search results is worse than extra API calls. When a resource is deleted, the vector DB should reflect that as quickly as possible. |
+| 2026-02-21 | Daily resync (24h) + ad-hoc HTTP trigger over 60-min periodic | Frequent periodic resyncs are wasteful for clusters that don't change often. A daily resync covers eventual consistency; ad-hoc `POST /api/v1/resync` covers on-demand needs (deploy scripts, CI, manual verification). |
 
 ---
 
@@ -205,3 +207,4 @@ Environment variable configuration for the POC (CRD-based config is a future enh
 | 2026-02-21 | M1 Complete | Kubebuilder scaffold (Go 1.26, controller-runtime v0.21.0), dynamic informers via discovery API, metadata extraction (namespace/name/kind/apiVersion/labels/filtered-annotations), resource filtering (allowlist/blocklist with default exclusions), console event logging, 35 unit tests passing |
 | 2026-02-21 | M2 Complete | DebounceBuffer with per-resource timers, last-state-wins dedup, configurable flush interval/batch size, deletes bypass debounce (forwarded immediately), SyncPayload with separate upserts/deletes, graceful shutdown flush, 9 debounce tests passing |
 | 2026-02-21 | M3 Partial (k8s-vectordb-sync side) | REST client (`internal/client/rest.go`) with JSON POST, exponential backoff retry (configurable max retries, initial/max delay), 4xx no-retry vs 5xx/timeout retry, context cancellation support, empty payload skip. Wired into cmd/main.go replacing logPayloads placeholder. 8 contract tests passing. Cluster-whisperer REST endpoint (other repo) still needed to complete M3. |
+| 2026-02-21 | M4 Complete | Resync interval default changed to 24h (1440min). Ad-hoc resync via `POST /api/v1/resync` endpoint (`internal/api/server.go`). Watcher.TriggerResync() re-lists all watched GVRs and emits ADD events. API server wired as manager.Runnable on :8082. Graceful shutdown fixed: sender uses fresh context to drain final payloads. Health probes already present from Kubebuilder scaffold. Informer reconnection handled by controller-runtime. 11 new tests (6 watcher, 5 API), 60 total passing. |
