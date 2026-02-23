@@ -34,6 +34,8 @@ import (
 var (
 	// managerImage is the manager image to be built and loaded for testing.
 	managerImage = "example.com/k8s-vectordb-sync:v0.0.1"
+	// mockServerImage is the mock server image for pipeline e2e tests.
+	mockServerImage = "mock-server:test"
 	// shouldCleanupCertManager tracks whether CertManager was installed by this suite.
 	shouldCleanupCertManager = false
 )
@@ -59,6 +61,15 @@ var _ = BeforeSuite(func() {
 	By("loading the manager image on Kind")
 	err = utils.LoadImageToKindClusterWithName(managerImage)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to load the manager image into Kind")
+
+	By("building the mock server image")
+	cmd = exec.Command("docker", "build", "-t", mockServerImage, "test/e2e/mockserver/")
+	_, err = utils.Run(cmd)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the mock server image")
+
+	By("loading the mock server image on Kind")
+	err = utils.LoadImageToKindClusterWithName(mockServerImage)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to load the mock server image into Kind")
 
 	setupCertManager()
 })

@@ -22,9 +22,12 @@ package e2e
 import (
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -44,6 +47,32 @@ const metricsServiceName = "k8s-vectordb-sync-controller-manager-metrics-service
 
 // metricsRoleBindingName is the name of the RBAC that will be created to allow get the metrics data
 const metricsRoleBindingName = "k8s-vectordb-sync-metrics-binding"
+
+// Pipeline test constants
+const (
+	mockServerPort     = "38080"
+	mockServerLocalURL = "http://localhost:38080"
+	testNamespace      = "e2e-pipeline-test"
+)
+
+// syncPayload mirrors the controller's SyncPayload for deserializing mock server responses.
+type syncPayload struct {
+	Upserts []resourceInstance `json:"upserts"`
+	Deletes []string           `json:"deletes"`
+}
+
+// resourceInstance mirrors the controller's ResourceInstance for deserializing mock server responses.
+type resourceInstance struct {
+	ID          string            `json:"id"`
+	Namespace   string            `json:"namespace"`
+	Name        string            `json:"name"`
+	Kind        string            `json:"kind"`
+	APIVersion  string            `json:"apiVersion"`
+	APIGroup    string            `json:"apiGroup"`
+	Labels      map[string]string `json:"labels"`
+	Annotations map[string]string `json:"annotations"`
+	CreatedAt   string            `json:"createdAt"`
+}
 
 var _ = Describe("Manager", Ordered, func() {
 	var controllerPodName string
@@ -68,10 +97,37 @@ var _ = Describe("Manager", Ordered, func() {
 		_, err = utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred(), "Failed to install CRDs")
 
+		By("deploying the mock server")
+		cmd = exec.Command("kubectl", "apply", "-f", "test/e2e/mockserver/manifests.yaml")
+		_, err = utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred(), "Failed to deploy mock server")
+
+		By("waiting for mock server to be ready")
+		verifyMockServerReady := func(g Gomega) {
+			cmd := exec.Command("kubectl", "get", "pods", "-l", "app=mock-server",
+				"-n", "default", "-o", "jsonpath={.items[0].status.conditions[?(@.type=='Ready')].status}")
+			output, err := utils.Run(cmd)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(output).To(Equal("True"), "Mock server pod not ready")
+		}
+		Eventually(verifyMockServerReady, 2*time.Minute, time.Second).Should(Succeed())
+
 		By("deploying the controller-manager")
 		cmd = exec.Command("make", "deploy", fmt.Sprintf("IMG=%s", managerImage))
 		_, err = utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred(), "Failed to deploy the controller-manager")
+
+		By("configuring controller to use mock server with fast debounce")
+		cmd = exec.Command("kubectl", "set", "env",
+			"deployment/k8s-vectordb-sync-controller-manager",
+			"-n", namespace,
+			"REST_ENDPOINT=http://mock-server.default.svc:8080/api/v1/instances/sync",
+			"DEBOUNCE_WINDOW_MS=2000",
+			"BATCH_FLUSH_INTERVAL_MS=2000",
+			"WATCH_RESOURCE_TYPES=deployments",
+		)
+		_, err = utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred(), "Failed to configure controller env vars")
 	})
 
 	// After all tests have been executed, clean up by undeploying the controller, uninstalling CRDs,
@@ -91,6 +147,14 @@ var _ = Describe("Manager", Ordered, func() {
 
 		By("removing manager namespace")
 		cmd = exec.Command("kubectl", "delete", "ns", namespace)
+		_, _ = utils.Run(cmd)
+
+		By("cleaning up mock server")
+		cmd = exec.Command("kubectl", "delete", "-f", "test/e2e/mockserver/manifests.yaml", "--ignore-not-found")
+		_, _ = utils.Run(cmd)
+
+		By("cleaning up test namespace")
+		cmd = exec.Command("kubectl", "delete", "ns", testNamespace, "--ignore-not-found")
 		_, _ = utils.Run(cmd)
 	})
 
@@ -269,16 +333,129 @@ var _ = Describe("Manager", Ordered, func() {
 		})
 
 		// +kubebuilder:scaffold:e2e-webhooks-checks
+	})
 
-		// TODO: Customize the e2e test suite with scenarios specific to your project.
-		// Consider applying sample/CR(s) and check their status and/or verifying
-		// the reconciliation by using the metrics, i.e.:
-		// metricsOutput, err := getMetricsOutput()
-		// Expect(err).NotTo(HaveOccurred(), "Failed to retrieve logs from curl pod")
-		// Expect(metricsOutput).To(ContainSubstring(
-		//    fmt.Sprintf(`controller_runtime_reconcile_total{controller="%s",result="success"} 1`,
-		//    strings.ToLower(<Kind>),
-		// ))
+	Context("Pipeline", Ordered, func() {
+		var portForwardCmd *exec.Cmd
+
+		BeforeAll(func() {
+			By("refreshing controller pod name after env var restart")
+			verifyControllerUp := func(g Gomega) {
+				cmd := exec.Command("kubectl", "get",
+					"pods", "-l", "control-plane=controller-manager",
+					"-o", "go-template={{ range .items }}"+
+						"{{ if not .metadata.deletionTimestamp }}"+
+						"{{ .metadata.name }}"+
+						"{{ \"\\n\" }}{{ end }}{{ end }}",
+					"-n", namespace,
+				)
+				podOutput, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				podNames := utils.GetNonEmptyLines(podOutput)
+				g.Expect(podNames).To(HaveLen(1), "expected 1 controller pod running")
+				controllerPodName = podNames[0]
+
+				cmd = exec.Command("kubectl", "get",
+					"pods", controllerPodName, "-o", "jsonpath={.status.phase}",
+					"-n", namespace,
+				)
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("Running"))
+			}
+			Eventually(verifyControllerUp, 3*time.Minute, time.Second).Should(Succeed())
+
+			By("starting port-forward to mock server")
+			portForwardCmd = exec.Command("kubectl", "port-forward",
+				"svc/mock-server", fmt.Sprintf("%s:8080", mockServerPort),
+				"-n", "default")
+			dir, _ := utils.GetProjectDir()
+			portForwardCmd.Dir = dir
+			err := portForwardCmd.Start()
+			Expect(err).NotTo(HaveOccurred(), "Failed to start port-forward to mock server")
+
+			By("waiting for port-forward to be ready")
+			Eventually(func() error {
+				resp, err := http.Get(mockServerLocalURL + "/healthz")
+				if err != nil {
+					return err
+				}
+				resp.Body.Close()
+				return nil
+			}, 30*time.Second, time.Second).Should(Succeed())
+
+			By("waiting for controller initial sync to settle")
+			// The controller lists all existing Deployments on startup and sends them.
+			// Wait for the debounce window + flush interval to complete.
+			time.Sleep(10 * time.Second)
+
+			By("clearing mock server payloads from initial sync")
+			clearMockPayloads()
+		})
+
+		AfterAll(func() {
+			if portForwardCmd != nil && portForwardCmd.Process != nil {
+				_ = portForwardCmd.Process.Kill()
+				_ = portForwardCmd.Wait()
+			}
+		})
+
+		It("should detect a new Deployment and send an upsert payload", func() {
+			By("creating a test namespace")
+			cmd := exec.Command("kubectl", "create", "ns", testNamespace)
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to create test namespace")
+
+			By("creating a test Deployment")
+			cmd = exec.Command("kubectl", "create", "deployment", "nginx-e2e",
+				"--image=nginx:latest", "-n", testNamespace)
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to create test Deployment")
+
+			By("waiting for the controller to detect and sync the Deployment")
+			Eventually(func(g Gomega) {
+				payloads := getMockPayloads()
+				found := false
+				for _, p := range payloads {
+					for _, u := range p.Upserts {
+						if u.Name == "nginx-e2e" && u.Namespace == testNamespace {
+							found = true
+							g.Expect(u.Kind).To(Equal("Deployment"))
+							g.Expect(u.APIVersion).To(Equal("apps/v1"))
+							g.Expect(u.APIGroup).To(Equal("apps"))
+							g.Expect(u.ID).To(ContainSubstring("nginx-e2e"))
+							g.Expect(u.CreatedAt).NotTo(BeEmpty())
+						}
+					}
+				}
+				g.Expect(found).To(BeTrue(), "expected upsert payload for nginx-e2e Deployment")
+			}, 30*time.Second, 2*time.Second).Should(Succeed())
+		})
+
+		It("should detect a deleted Deployment and send a delete payload", func() {
+			By("clearing mock server payloads")
+			clearMockPayloads()
+
+			By("deleting the test Deployment")
+			cmd := exec.Command("kubectl", "delete", "deployment", "nginx-e2e",
+				"-n", testNamespace, "--wait=false")
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to delete test Deployment")
+
+			By("waiting for the controller to detect and sync the deletion")
+			Eventually(func(g Gomega) {
+				payloads := getMockPayloads()
+				found := false
+				for _, p := range payloads {
+					for _, d := range p.Deletes {
+						if strings.Contains(d, "nginx-e2e") {
+							found = true
+						}
+					}
+				}
+				g.Expect(found).To(BeTrue(), "expected delete payload for nginx-e2e")
+			}, 30*time.Second, 2*time.Second).Should(Succeed())
+		})
 	})
 })
 
@@ -336,4 +513,42 @@ type tokenRequest struct {
 	Status struct {
 		Token string `json:"token"`
 	} `json:"status"`
+}
+
+// getMockPayloads retrieves all recorded payloads from the mock server via port-forward.
+func getMockPayloads() []syncPayload {
+	resp, err := http.Get(mockServerLocalURL + "/payloads")
+	if err != nil {
+		_, _ = fmt.Fprintf(GinkgoWriter, "Failed to get payloads: %v\n", err)
+		return nil
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		_, _ = fmt.Fprintf(GinkgoWriter, "Failed to read payloads response: %v\n", err)
+		return nil
+	}
+
+	var payloads []syncPayload
+	if err := json.Unmarshal(body, &payloads); err != nil {
+		_, _ = fmt.Fprintf(GinkgoWriter, "Failed to parse payloads: %v (body: %s)\n", err, string(body))
+		return nil
+	}
+	return payloads
+}
+
+// clearMockPayloads clears all recorded payloads from the mock server.
+func clearMockPayloads() {
+	req, err := http.NewRequest(http.MethodDelete, mockServerLocalURL+"/payloads", nil)
+	if err != nil {
+		_, _ = fmt.Fprintf(GinkgoWriter, "Failed to create clear request: %v\n", err)
+		return
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		_, _ = fmt.Fprintf(GinkgoWriter, "Failed to clear payloads: %v\n", err)
+		return
+	}
+	resp.Body.Close()
 }
