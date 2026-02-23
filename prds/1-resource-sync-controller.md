@@ -54,7 +54,7 @@ Our version will follow this pattern but start simpler — environment variable 
 - [x] Controller watches resource instances via Kubernetes informers (event-driven, not polling)
 - [x] Changes (create/update/delete) are debounced and batched before sending
 - [x] Controller POSTs instance metadata to cluster-whisperer REST API
-- [ ] cluster-whisperer REST endpoint receives metadata and stores in vector DB
+- [x] cluster-whisperer REST endpoint receives metadata and stores in vector DB
 - [x] Periodic full resync ensures eventual consistency
 - [x] Controller deploys in-cluster via Helm chart
 - [ ] End-to-end: deploy a resource → controller detects → vector DB updated → agent can find it
@@ -76,7 +76,7 @@ Our version will follow this pattern but start simpler — environment variable 
   - Separate upsert and delete batches
   - Unit tests for debounce timing, dedup logic, batch assembly
 
-- [ ] **M3**: REST API Integration (spans both repos)
+- [x] **M3**: REST API Integration (spans both repos)
   - **In k8s-vectordb-sync**: REST client that POSTs batched instance metadata to a configurable endpoint
   - **In cluster-whisperer**: REST endpoint that receives instance metadata and stores via existing `storeInstances()` pipeline
   - **In cluster-whisperer**: REST endpoint for delete requests that removes instances from vector DB
@@ -207,5 +207,6 @@ Environment variable configuration for the POC (CRD-based config is a future enh
 | 2026-02-21 | M1 Complete | Kubebuilder scaffold (Go 1.26, controller-runtime v0.21.0), dynamic informers via discovery API, metadata extraction (namespace/name/kind/apiVersion/labels/filtered-annotations), resource filtering (allowlist/blocklist with default exclusions), console event logging, 35 unit tests passing |
 | 2026-02-21 | M2 Complete | DebounceBuffer with per-resource timers, last-state-wins dedup, configurable flush interval/batch size, deletes bypass debounce (forwarded immediately), SyncPayload with separate upserts/deletes, graceful shutdown flush, 9 debounce tests passing |
 | 2026-02-21 | M3 Partial (k8s-vectordb-sync side) | REST client (`internal/client/rest.go`) with JSON POST, exponential backoff retry (configurable max retries, initial/max delay), 4xx no-retry vs 5xx/timeout retry, context cancellation support, empty payload skip. Wired into cmd/main.go replacing logPayloads placeholder. 8 contract tests passing. Cluster-whisperer REST endpoint (other repo) still needed to complete M3. |
+| 2026-02-23 | M3 Complete (cluster-whisperer side) | Cluster-whisperer implemented `POST /api/v1/instances/sync` using Hono framework with Zod validation. Endpoint processes deletes before upserts, integrates with existing `storeInstances()` pipeline for embedding and ChromaDB storage. Go nil handling (null → empty defaults). Health probes (`/healthz`, `/readyz`). Runs as separate process via `cluster-whisperer serve --port 3000`. 40+ tests (unit, integration against real ChromaDB, contract tests matching controller payload format). M6 now unblocked. |
 | 2026-02-21 | M4 Complete | Resync interval default changed to 24h (1440min). Ad-hoc resync via `POST /api/v1/resync` endpoint (`internal/api/server.go`). Watcher.TriggerResync() re-lists all watched GVRs and emits ADD events. API server wired as manager.Runnable on :8082. Graceful shutdown fixed: sender uses fresh context to drain final payloads. Health probes already present from Kubebuilder scaffold. Informer reconnection handled by controller-runtime. 11 new tests (6 watcher, 5 API), 60 total passing. |
 | 2026-02-21 | M5 Complete | Dockerfile already existed from Kubebuilder scaffold (multi-stage: Go 1.26 builder + distroless, non-root 65532). Helm chart created (`charts/k8s-vectordb-sync/`): Deployment, ServiceAccount, ClusterRole (`*/*` get/list/watch for dynamic informers), ClusterRoleBinding, Service (health :8081, resync API :8082). All 9 env vars wired through values.yaml. Kustomize RBAC role.yaml fixed from pods-only to broad read access. GitHub Actions CI workflow (`.github/workflows/build.yml`): tests, multi-arch buildx (amd64+arm64), push to ghcr.io with semver/branch/sha tags, GHA build cache. 60 tests still passing. |
