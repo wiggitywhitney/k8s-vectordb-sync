@@ -137,6 +137,10 @@ var _ = Describe("Manager", Ordered, func() {
 		cmd := exec.Command("kubectl", "delete", "pod", "curl-metrics", "-n", namespace)
 		_, _ = utils.Run(cmd)
 
+		By("cleaning up the metrics ClusterRoleBinding")
+		cmd = exec.Command("kubectl", "delete", "clusterrolebinding", metricsRoleBindingName, "--ignore-not-found")
+		_, _ = utils.Run(cmd)
+
 		By("undeploying the controller-manager")
 		cmd = exec.Command("make", "undeploy")
 		_, _ = utils.Run(cmd)
@@ -518,9 +522,13 @@ type tokenRequest struct {
 	} `json:"status"`
 }
 
+// mockHTTPClient is used for all mock server HTTP calls with a timeout
+// to prevent CI hangs if the port-forward breaks.
+var mockHTTPClient = &http.Client{Timeout: 5 * time.Second}
+
 // getMockPayloads retrieves all recorded payloads from the mock server via port-forward.
 func getMockPayloads() []syncPayload {
-	resp, err := http.Get(mockServerLocalURL + "/payloads")
+	resp, err := mockHTTPClient.Get(mockServerLocalURL + "/payloads")
 	if err != nil {
 		_, _ = fmt.Fprintf(GinkgoWriter, "Failed to get payloads: %v\n", err)
 		return nil
@@ -548,7 +556,7 @@ func clearMockPayloads() {
 		_, _ = fmt.Fprintf(GinkgoWriter, "Failed to create clear request: %v\n", err)
 		return
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := mockHTTPClient.Do(req)
 	if err != nil {
 		_, _ = fmt.Fprintf(GinkgoWriter, "Failed to clear payloads: %v\n", err)
 		return

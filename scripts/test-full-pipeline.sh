@@ -241,8 +241,10 @@ console.log(results.length);
 " 2>/dev/null) || true
 cd - >/dev/null
 
-if [ "${DELETE_CHECK:-1}" = "0" ]; then
+DELETE_PASSED=false
+if [[ "${DELETE_CHECK:-1}" == "0" ]]; then
     log_info "Resource successfully removed from vector database"
+    DELETE_PASSED=true
 else
     log_warn "Resource may still be in vector database (count: ${DELETE_CHECK:-unknown})"
     log_warn "This is expected if cluster-whisperer delete endpoint is not yet wired"
@@ -254,5 +256,10 @@ echo ""
 log_info "Controller → REST API:    PASSED (controller sent payloads to cluster-whisperer)"
 log_info "REST API → Vector DB:     PASSED (resource found in ChromaDB via search)"
 log_info "Create → Sync → Search:   PASSED (semantic bridge pattern validated)"
+if [[ "$DELETE_PASSED" == "true" ]]; then
+    log_info "Delete → Verify Remove:   PASSED"
+else
+    log_warn "Delete → Verify Remove:   SKIPPED/INCONCLUSIVE"
+fi
 echo ""
 log_info "Full pipeline test complete!"

@@ -127,6 +127,41 @@ npx tsx src/index.ts serve --port 3000 --chroma-url http://localhost:8000
 
 See the [cluster-whisperer README](https://github.com/wiggitywhitney/cluster-whisperer) for full setup instructions.
 
+## Observability
+
+### Metrics Endpoint
+
+The controller exposes a Prometheus-compatible metrics endpoint over HTTPS at `/metrics` on port 8443. Metrics are served with TLS using certificates managed by [cert-manager](https://cert-manager.io/) and are protected by Kubernetes RBAC (the `metrics-reader` ClusterRole).
+
+To access metrics manually:
+
+```bash
+# Port-forward to the metrics service
+kubectl port-forward svc/k8s-vectordb-sync-controller-manager-metrics-service \
+  8443:8443 -n k8s-vectordb-sync-system
+
+# Get a service account token
+TOKEN=$(kubectl create token k8s-vectordb-sync-controller-manager -n k8s-vectordb-sync-system)
+
+# Fetch metrics (TLS, skip verify for self-signed certs)
+curl -k -H "Authorization: Bearer $TOKEN" https://localhost:8443/metrics
+```
+
+The controller emits standard controller-runtime metrics including reconciliation counts, queue depth, and Go runtime stats.
+
+### Prometheus / ServiceMonitor
+
+A `ServiceMonitor` is included in the Kustomize manifests at `config/prometheus/`. If you use the Prometheus Operator, it will be deployed automatically and Prometheus will scrape the metrics endpoint.
+
+### Health Probes
+
+The controller exposes health and readiness probes:
+
+| Endpoint | Port | Purpose |
+|----------|------|---------|
+| `/healthz` | 8081 | Liveness probe |
+| `/readyz` | 8081 | Readiness probe |
+
 ### Triggering a Resync
 
 The controller performs a full resync on a schedule (default: every 24 hours). You can also trigger one manually by sending a POST request to the controller's API:

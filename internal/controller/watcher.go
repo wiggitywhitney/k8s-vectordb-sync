@@ -88,6 +88,13 @@ func NewWatcher(log logr.Logger, restConfig *rest.Config, cfg config.Config) (*W
 // Start discovers watchable resources, sets up informers, and begins watching.
 // It blocks until the context is cancelled.
 func (w *Watcher) Start(ctx context.Context) error {
+	// Propagate context cancellation to stopCh so WaitForCacheSync
+	// unblocks if the context is cancelled before caches sync.
+	go func() {
+		<-ctx.Done()
+		w.Stop()
+	}()
+
 	discovered := w.discoverResources()
 	w.watchedGVRsMu.Lock()
 	w.watchedGVRs = discovered
@@ -114,8 +121,7 @@ func (w *Watcher) Start(ctx context.Context) error {
 
 	// Block until context is done
 	<-ctx.Done()
-	w.Stop()
-	return nil
+	return ctx.Err()
 }
 
 // Stop shuts down all informers. The Events channel is not closed here

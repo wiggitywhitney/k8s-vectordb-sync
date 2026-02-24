@@ -27,6 +27,10 @@ SHELL = /usr/bin/env bash -o pipefail
 .PHONY: all
 all: build
 
+.PHONY: clean
+clean: ## Remove build artifacts and tool binaries.
+	rm -rf bin/ dist/
+
 ##@ General
 
 # The help target prints out all targets with their descriptions organized
