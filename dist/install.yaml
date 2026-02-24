@@ -268,7 +268,7 @@ spec:
   isCA: false
   issuerRef:
     kind: Issuer
-    name: selfsigned-issuer
+    name: k8s-vectordb-sync-selfsigned-issuer
   secretName: metrics-server-cert
 ---
 apiVersion: cert-manager.io/v1
