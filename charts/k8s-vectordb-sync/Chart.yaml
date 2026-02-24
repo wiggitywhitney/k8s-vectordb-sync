@@ -1,0 +1,16 @@
+apiVersion: v2
+name: k8s-vectordb-sync
+description: Kubernetes controller that watches cluster resources and syncs instance metadata to a REST API
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - kubernetes
+  - controller
+  - vector-database
+  - sync
+home: https://github.com/wiggitywhitney/k8s-vectordb-sync
+sources:
+  - https://github.com/wiggitywhitney/k8s-vectordb-sync
+maintainers:
+  - name: wiggitywhitney

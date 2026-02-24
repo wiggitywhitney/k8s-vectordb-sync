@@ -14,6 +14,8 @@ This repo uses YOLO workflow mode. Proceed without trivial confirmations. Never 
 
 This repo uses autonomous workflow chaining. After completing a PRD task, proceed directly: implement the work, run `/prd-update-progress`, then `/prd-next` for the next task. Continue the cycle without pausing for confirmation. Only pause for ambiguous decisions, architectural choices, or PRD deviations.
 
+**Context clearing:** After any successful completion of `/prd-update-progress`, clear conversation context before starting the next task. This keeps context windows fresh and prevents stale state from accumulating across milestones.
+
 ## CodeRabbit Reviews (MANDATORY)
 
 Every PR must go through CodeRabbit review before merge. This is a hard requirement, not optional.
@@ -47,12 +49,13 @@ Every PR must go through CodeRabbit review before merge. This is a hard requirem
 
 ## Testing Strategy
 
-This is a K8s/Infrastructure project. Follow the integration-first testing approach:
+This is a K8s/Infrastructure project with three required test tiers:
 
-- **Integration tests against real Kind clusters** for controller behavior (informer watching, event handling, reconciliation)
-- **Unit tests** for pure logic: metadata extraction, resource filtering, debounce/batch assembly, payload formatting
-- **Contract tests** for REST API client: request shapes, response handling, retry logic
-- **Lifecycle tests** over atomic tests: CREATE → verify → UPDATE → verify → DELETE → verify
+- **Unit tests** (`make test`): Pure logic — metadata extraction, resource filtering, debounce/batch assembly, payload formatting, config loading. Run on every commit via pre-commit hook.
+- **Integration tests** (`make test-integration`): Cross-component pipeline — debouncer + REST client wired together with a real HTTP server. Tests event flow, last-state-wins dedup, delete bypass, and graceful shutdown drain. Uses `-tags=integration` build tag. **Must be run before creating PRs.**
+- **E2E tests** (`make test-e2e`): Full stack against real Kind clusters — controller watches real Kubernetes resources, sends payloads to a mock server deployed in-cluster. Run in CI via GitHub Actions.
+
+All three tiers are mandatory. Do not skip any tier without explicit human authorization. Advisory warnings from test tier hooks must be addressed, not ignored.
 
 <!-- @import: Claude Code rule import, not a filesystem path for contributors -->
 See testing decision guide for full K8s/Infrastructure strategy: @~/Documents/Repositories/claude-config/guides/testing-decision-guide.md
