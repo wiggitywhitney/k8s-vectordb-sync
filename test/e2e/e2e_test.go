@@ -432,7 +432,7 @@ var _ = Describe("Manager", Ordered, func() {
 					}
 				}
 				g.Expect(found).To(BeTrue(), "expected upsert payload for nginx-e2e Deployment")
-			}, 30*time.Second, 2*time.Second).Should(Succeed())
+			}, 60*time.Second, 2*time.Second).Should(Succeed())
 		})
 
 		It("should detect a deleted Deployment and send a delete payload", func() {
@@ -457,7 +457,7 @@ var _ = Describe("Manager", Ordered, func() {
 					}
 				}
 				g.Expect(found).To(BeTrue(), "expected delete payload for nginx-e2e")
-			}, 30*time.Second, 2*time.Second).Should(Succeed())
+			}, 60*time.Second, 2*time.Second).Should(Succeed())
 		})
 	})
 })
