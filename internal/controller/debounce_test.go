@@ -392,7 +392,7 @@ func TestDebounce_ChannelCloseFlushesAllPending(t *testing.T) {
 	close(events)
 
 	// The Payloads channel should receive the pending upsert and then close
-	var upserts []metadata.ResourceInstance
+	upserts := make([]metadata.ResourceInstance, 0, 1)
 	for payload := range db.Payloads {
 		upserts = append(upserts, payload.Upserts...)
 	}
