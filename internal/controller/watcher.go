@@ -113,11 +113,12 @@ func (w *Watcher) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop shuts down all informers and closes the events channel.
+// Stop shuts down all informers. The Events channel is not closed here
+// because informer callbacks may still be in-flight; the debouncer exits
+// via its own context cancellation.
 func (w *Watcher) Stop() {
 	w.stopOnce.Do(func() {
 		close(w.stopCh)
-		close(w.Events)
 	})
 }
 
@@ -207,9 +208,11 @@ func (w *Watcher) makeEventHandler() cache.ResourceEventHandlerFuncs {
 }
 
 // emit sends a ResourceEvent to the events channel without blocking.
-// If the channel is full, the event is dropped with a warning log.
+// If the channel is full or the watcher has been stopped, the event is dropped.
 func (w *Watcher) emit(event ResourceEvent) {
 	select {
+	case <-w.stopCh:
+		return
 	case w.Events <- event:
 	default:
 		w.log.Info("Event channel full, dropping event",

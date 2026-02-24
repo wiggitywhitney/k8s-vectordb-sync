@@ -9,8 +9,9 @@ fullnameOverride: ""
 
 # Controller configuration (maps to environment variables)
 config:
-  # cluster-whisperer REST endpoint URL
-  restEndpoint: "http://localhost:3000/api/v1/instances/sync"
+  # REQUIRED: Set to cluster-whisperer's REST endpoint URL
+  # Example: http://cluster-whisperer:3000/api/v1/instances/sync
+  restEndpoint: ""
   # Debounce window per resource in milliseconds
   debounceWindowMs: 10000
   # Maximum time before flushing a batch in milliseconds
@@ -62,6 +63,8 @@ resources:
 nodeSelector: {}
 tolerations: []
 affinity: {}
+
+terminationGracePeriodSeconds: 30
 
 podAnnotations: {}
 podLabels: {}

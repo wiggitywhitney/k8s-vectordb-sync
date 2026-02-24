@@ -40,9 +40,18 @@ func WithTimeout(d time.Duration) Option {
 // WithRetry configures retry behavior with exponential backoff.
 func WithRetry(maxRetries int, initialDelay, maxDelay time.Duration) Option {
 	return func(c *RESTClient) {
-		c.maxRetries = maxRetries
-		c.initialDelay = initialDelay
-		c.maxDelay = maxDelay
+		if maxRetries >= 0 {
+			c.maxRetries = maxRetries
+		}
+		if initialDelay > 0 {
+			c.initialDelay = initialDelay
+		}
+		if maxDelay > 0 {
+			c.maxDelay = maxDelay
+		}
+		if c.initialDelay > c.maxDelay {
+			c.initialDelay = c.maxDelay
+		}
 	}
 }
 

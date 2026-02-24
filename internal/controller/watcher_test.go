@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -173,6 +174,34 @@ func makeUnstructured(apiVersion, kind, namespace, name string, labels map[strin
 		obj.SetLabels(labels)
 	}
 	return obj
+}
+
+func TestEmit_AfterStopDoesNotPanic(t *testing.T) {
+	// Regression: calling emit() after Stop() must not panic. A previous bug
+	// closed the Events channel in Stop(), causing a "send on closed channel"
+	// panic when in-flight informer callbacks called emit(). The fix uses
+	// stopCh to guard emit instead of closing Events.
+	w := &Watcher{
+		Events: make(chan ResourceEvent, 10),
+		stopCh: make(chan struct{}),
+	}
+
+	// Stop the watcher (closes stopCh)
+	w.Stop()
+
+	// emit() after Stop() should not panic. Call it multiple times to exercise
+	// the path thoroughly — the old code would panic on every call.
+	for i := range 100 {
+		w.emit(ResourceEvent{
+			Type:     EventAdd,
+			Instance: testInstance(fmt.Sprintf("after-stop-%d", i)),
+		})
+	}
+
+	// If we got here without panicking, the test passes.
+	// Note: Go's select is non-deterministic when multiple cases are ready,
+	// so some events may land in the buffered channel. That's acceptable —
+	// the critical invariant is no panic, not that events are dropped.
 }
 
 func TestTriggerResync_EmitsEventsForAllResources(t *testing.T) {

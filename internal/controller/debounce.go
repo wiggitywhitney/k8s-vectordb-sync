@@ -43,6 +43,7 @@ type DebounceBuffer struct {
 type pendingChange struct {
 	instance metadata.ResourceInstance
 	timer    *time.Timer
+	ready    bool
 }
 
 // NewDebounceBuffer creates a DebounceBuffer from the controller configuration.
@@ -68,7 +69,7 @@ func (d *DebounceBuffer) Run(ctx context.Context, events <-chan ResourceEvent) {
 		case event, ok := <-events:
 			if !ok {
 				// Channel closed — flush remaining and exit
-				d.flushPending()
+				d.flushAllPending()
 				close(d.Payloads)
 				return
 			}
@@ -117,19 +118,26 @@ func (d *DebounceBuffer) handleEvent(event ResourceEvent) {
 		existing.timer.Stop()
 	}
 
-	d.pending[event.Instance.ID] = pendingChange{
+	id := event.Instance.ID
+	d.pending[id] = pendingChange{
 		instance: event.Instance,
-		timer:    time.AfterFunc(d.debounceWindow, func() { d.promoteToReady() }),
+		timer: time.AfterFunc(d.debounceWindow, func() {
+			d.pendingMu.Lock()
+			if p, ok := d.pending[id]; ok {
+				p.ready = true
+				d.pending[id] = p
+			}
+			d.pendingMu.Unlock()
+			d.checkFlush()
+		}),
 	}
 }
 
-// promoteToReady is called when a debounce timer fires. It marks the change
-// as ready for the next flush cycle by leaving it in the pending map
-// (the timer has fired, so it won't be reset unless a new event arrives).
-// The actual flush happens on the flush ticker or when batch size is reached.
-func (d *DebounceBuffer) promoteToReady() {
+// checkFlush is called when a debounce timer fires. It checks if enough
+// ready entries have accumulated to trigger an early batch flush.
+func (d *DebounceBuffer) checkFlush() {
 	d.pendingMu.Lock()
-	size := d.pendingCount()
+	size := d.readyCount()
 	d.pendingMu.Unlock()
 
 	if size >= d.maxBatchSize {
@@ -137,8 +145,20 @@ func (d *DebounceBuffer) promoteToReady() {
 	}
 }
 
-// flushPending collects all pending changes whose timers have fired
-// and emits them as a single SyncPayload.
+// readyCount returns the number of pending changes whose debounce timers
+// have fired (must hold pendingMu).
+func (d *DebounceBuffer) readyCount() int {
+	count := 0
+	for _, change := range d.pending {
+		if change.ready {
+			count++
+		}
+	}
+	return count
+}
+
+// flushPending collects all pending changes whose debounce timers have fired
+// (ready == true) and emits them as a single SyncPayload.
 func (d *DebounceBuffer) flushPending() {
 	d.pendingMu.Lock()
 
@@ -148,21 +168,11 @@ func (d *DebounceBuffer) flushPending() {
 	}
 
 	var upserts []metadata.ResourceInstance
-	var stillPending []string
 
 	for id, change := range d.pending {
-		// Check if the timer has fired by trying to stop it.
-		// If Stop returns false, the timer already fired — the change is ready.
-		if !change.timer.Stop() {
+		if change.ready {
 			upserts = append(upserts, change.instance)
 			delete(d.pending, id)
-		} else {
-			// Timer was still running — re-arm it (Stop consumed it)
-			stillPending = append(stillPending, id)
-			d.pending[id] = pendingChange{
-				instance: change.instance,
-				timer:    time.AfterFunc(d.debounceWindow, func() { d.promoteToReady() }),
-			}
 		}
 	}
 
@@ -178,7 +188,6 @@ func (d *DebounceBuffer) flushPending() {
 	d.emitPayload(payload)
 	d.log.Info("Batch flushed",
 		"upserts", len(upserts),
-		"stillPending", len(stillPending),
 	)
 }
 

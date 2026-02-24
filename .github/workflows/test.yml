@@ -2,12 +2,15 @@ name: Tests
 
 on:
   push:
+    branches: [main]
   pull_request:
 
 jobs:
   test:
     name: Run on Ubuntu
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - name: Clone the code
         uses: actions/checkout@v4
@@ -20,4 +23,5 @@ jobs:
       - name: Running Tests
         run: |
           go mod tidy
+          git diff --exit-code go.mod go.sum
           make test

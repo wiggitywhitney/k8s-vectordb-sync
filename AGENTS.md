@@ -3,7 +3,7 @@
 ## Project Structure
 
 **Single-group layout (default):**
-```
+```text
 cmd/main.go                    Manager entry (registers controllers/webhooks)
 api/<version>/*_types.go       CRD schemas (+kubebuilder markers)
 api/<version>/zz_generated.*   Auto-generated (DO NOT EDIT)
@@ -17,7 +17,7 @@ PROJECT                        Kubebuilder metadata Auto-generated (DO NOT EDIT)
 ```
 
 **Multi-group layout** (for projects with multiple API groups):
-```
+```text
 api/<group>/<version>/*_types.go       CRD schemas by group
 internal/controller/<group>/*          Controllers by group
 internal/webhook/<group>/<version>/*   Webhooks by group and version (if present)
@@ -59,13 +59,13 @@ Ensure you run them against a dedicated [Kind](https://kind.sigs.k8s.io/) cluste
 ## After Making Changes
 
 **After editing `*_types.go` or markers:**
-```
+```bash
 make manifests  # Regenerate CRDs/RBAC from markers
 make generate   # Regenerate DeepCopy methods
 ```
 
 **After editing `*.go` files:**
-```
+```bash
 make lint-fix   # Auto-fix code style
 make test       # Run unit tests
 ```
@@ -231,7 +231,7 @@ log.Error(err, "Failed to create Pod", "name", name)
 
 ### Webhooks
 - **Create all types together**: `--defaulting --programmatic-validation --conversion`
-- **When`--force`is used**: Backup custom logic first, then restore after scaffolding
+- **When `--force` is used**: Backup custom logic first, then restore after scaffolding
 - **For multi-version APIs**: Use hub-and-spoke pattern (`--conversion --spoke v2`)
   - Hub version: Usually oldest stable version (v1)
   - Spoke versions: Newer versions that convert to/from hub (v2, v3)

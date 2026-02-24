@@ -366,6 +366,78 @@ func TestDebounce_DebounceResetsOnNewEvent(t *testing.T) {
 	}
 }
 
+func TestDebounce_ChannelCloseFlushesAllPending(t *testing.T) {
+	// Regression: closing the events channel must flush ALL pending entries,
+	// including those whose debounce timers haven't fired yet. A previous bug
+	// used flushPending() (ready-only) instead of flushAllPending() on channel close.
+	cfg := testConfig(10000, 10000, 100) // 10s debounce — timer will not fire during this test
+	db := NewDebounceBuffer(logr.Discard(), cfg)
+
+	events := make(chan ResourceEvent, 10)
+	ctx, cancel := t.Context(), func() {}
+	_ = cancel
+
+	go db.Run(ctx, events)
+
+	// Send an ADD event
+	events <- ResourceEvent{
+		Type:     EventAdd,
+		Instance: makeInstance(testDeploymentID, "default", "nginx", "Deployment"),
+	}
+
+	// Small delay to ensure the event is processed before closing
+	time.Sleep(10 * time.Millisecond)
+
+	// Close events channel BEFORE the debounce timer fires
+	close(events)
+
+	// The Payloads channel should receive the pending upsert and then close
+	var upserts []metadata.ResourceInstance
+	for payload := range db.Payloads {
+		upserts = append(upserts, payload.Upserts...)
+	}
+
+	if len(upserts) != 1 {
+		t.Fatalf("Expected 1 upsert flushed on channel close, got %d", len(upserts))
+	}
+	if upserts[0].ID != testDeploymentID {
+		t.Errorf("Upsert ID = %q, want %q", upserts[0].ID, testDeploymentID)
+	}
+}
+
+func TestDebounce_FlushDoesNotRearmTimers(t *testing.T) {
+	// Regression: when flushInterval < debounceWindow, flush ticks that fire
+	// before the debounce timer must not prevent the entry from eventually being
+	// flushed. A previous bug could re-arm or lose timers during frequent flushes.
+	cfg := testConfig(200, 50, 100) // 200ms debounce, 50ms flush interval
+	db := NewDebounceBuffer(logr.Discard(), cfg)
+
+	events := make(chan ResourceEvent, 10)
+	ctx, cancel := t.Context(), func() {}
+	_ = cancel
+
+	go db.Run(ctx, events)
+
+	// Send an ADD event
+	events <- ResourceEvent{
+		Type:     EventAdd,
+		Instance: makeInstance("default/v1/ConfigMap/flush-test", "default", "flush-test", "ConfigMap"),
+	}
+
+	// Wait longer than the debounce window (200ms) plus margin for flush interval to fire
+	select {
+	case payload := <-db.Payloads:
+		if len(payload.Upserts) != 1 {
+			t.Fatalf("Expected 1 upsert, got %d", len(payload.Upserts))
+		}
+		if payload.Upserts[0].ID != "default/v1/ConfigMap/flush-test" {
+			t.Errorf("Upsert ID = %q, want flush-test resource", payload.Upserts[0].ID)
+		}
+	case <-time.After(1 * time.Second):
+		t.Fatal("Entry was never flushed — frequent flush ticks prevented debounce timer from working")
+	}
+}
+
 func TestSyncPayload_JSONStructure(t *testing.T) {
 	payload := SyncPayload{
 		Upserts: []metadata.ResourceInstance{
