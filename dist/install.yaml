@@ -195,6 +195,7 @@ spec:
         - --metrics-bind-address=:8443
         - --leader-elect
         - --health-probe-bind-address=:8081
+        - --metrics-cert-path=/tmp/k8s-metrics-server/metrics-certs
         command:
         - /manager
         image: controller:latest
@@ -228,11 +229,55 @@ spec:
             drop:
             - ALL
           readOnlyRootFilesystem: true
-        volumeMounts: []
+        volumeMounts:
+        - mountPath: /tmp/k8s-metrics-server/metrics-certs
+          name: metrics-certs
+          readOnly: true
       securityContext:
         runAsNonRoot: true
         seccompProfile:
           type: RuntimeDefault
       serviceAccountName: k8s-vectordb-sync-controller-manager
       terminationGracePeriodSeconds: 30
-      volumes: []
+      volumes:
+      - name: metrics-certs
+        secret:
+          items:
+          - key: ca.crt
+            path: ca.crt
+          - key: tls.crt
+            path: tls.crt
+          - key: tls.key
+            path: tls.key
+          optional: false
+          secretName: metrics-server-cert
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: k8s-vectordb-sync
+  name: k8s-vectordb-sync-metrics-certs
+  namespace: k8s-vectordb-sync-system
+spec:
+  commonName: k8s-vectordb-sync-metrics
+  dnsNames:
+  - k8s-vectordb-sync-controller-manager-metrics-service.k8s-vectordb-sync-system.svc
+  - k8s-vectordb-sync-controller-manager-metrics-service.k8s-vectordb-sync-system.svc.cluster.local
+  isCA: false
+  issuerRef:
+    kind: Issuer
+    name: selfsigned-issuer
+  secretName: metrics-server-cert
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: k8s-vectordb-sync
+  name: k8s-vectordb-sync-selfsigned-issuer
+  namespace: k8s-vectordb-sync-system
+spec:
+  selfSigned: {}
