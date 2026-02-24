@@ -37,6 +37,11 @@ type DebounceBuffer struct {
 
 	// Payloads channel for downstream consumers (REST client)
 	Payloads chan SyncPayload
+
+	// payloadsMu guards payloadsClosed to prevent send-on-closed-channel panics
+	// from timer goroutines that race with Run() closing the Payloads channel.
+	payloadsMu     sync.Mutex
+	payloadsClosed bool
 }
 
 // pendingChange tracks a debounced resource change with its timer.
@@ -44,6 +49,7 @@ type pendingChange struct {
 	instance metadata.ResourceInstance
 	timer    *time.Timer
 	ready    bool
+	gen      uint64 // generation counter to prevent stale timer goroutines from marking replacement entries ready
 }
 
 // NewDebounceBuffer creates a DebounceBuffer from the controller configuration.
@@ -70,7 +76,7 @@ func (d *DebounceBuffer) Run(ctx context.Context, events <-chan ResourceEvent) {
 			if !ok {
 				// Channel closed — flush remaining and exit
 				d.flushAllPending()
-				close(d.Payloads)
+				d.closePayloads()
 				return
 			}
 			d.handleEvent(event)
@@ -82,7 +88,7 @@ func (d *DebounceBuffer) Run(ctx context.Context, events <-chan ResourceEvent) {
 			// Context cancelled — flush any pending changes and exit.
 			// Don't try to drain the events channel as it may never close.
 			d.flushAllPending()
-			close(d.Payloads)
+			d.closePayloads()
 			return
 		}
 	}
@@ -113,17 +119,21 @@ func (d *DebounceBuffer) handleEvent(event ResourceEvent) {
 	d.pendingMu.Lock()
 	defer d.pendingMu.Unlock()
 
+	var nextGen uint64
 	if existing, ok := d.pending[event.Instance.ID]; ok {
 		// Reset the existing timer and update the state (last-state-wins)
 		existing.timer.Stop()
+		nextGen = existing.gen + 1
 	}
 
 	id := event.Instance.ID
+	capturedGen := nextGen
 	d.pending[id] = pendingChange{
 		instance: event.Instance,
+		gen:      capturedGen,
 		timer: time.AfterFunc(d.debounceWindow, func() {
 			d.pendingMu.Lock()
-			if p, ok := d.pending[id]; ok {
+			if p, ok := d.pending[id]; ok && p.gen == capturedGen {
 				p.ready = true
 				d.pending[id] = p
 			}
@@ -221,8 +231,25 @@ func (d *DebounceBuffer) pendingCount() int {
 	return len(d.pending)
 }
 
+// closePayloads closes the Payloads channel exactly once, guarded by payloadsMu
+// to prevent send-on-closed-channel panics from concurrent timer goroutines.
+func (d *DebounceBuffer) closePayloads() {
+	d.payloadsMu.Lock()
+	defer d.payloadsMu.Unlock()
+	if !d.payloadsClosed {
+		d.payloadsClosed = true
+		close(d.Payloads)
+	}
+}
+
 // emitPayload sends a SyncPayload to the payloads channel without blocking.
+// Guards against send-on-closed-channel from timer goroutines racing with shutdown.
 func (d *DebounceBuffer) emitPayload(payload SyncPayload) {
+	d.payloadsMu.Lock()
+	defer d.payloadsMu.Unlock()
+	if d.payloadsClosed {
+		return
+	}
 	select {
 	case d.Payloads <- payload:
 	default:

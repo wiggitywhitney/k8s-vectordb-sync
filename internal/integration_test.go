@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -368,18 +369,5 @@ func TestIntegration_GracefulShutdownDrainsPendingPayloads(t *testing.T) {
 
 // labelForIteration returns a version label string for the given 0-based iteration.
 func labelForIteration(i int) string {
-	return "v" + itoa(i+1)
-}
-
-// itoa converts an int to its string representation without importing strconv.
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	digits := []byte{}
-	for n > 0 {
-		digits = append([]byte{byte('0' + n%10)}, digits...)
-		n /= 10
-	}
-	return string(digits)
+	return "v" + strconv.Itoa(i+1)
 }

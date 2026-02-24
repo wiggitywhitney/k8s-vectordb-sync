@@ -51,7 +51,9 @@ type Watcher struct {
 
 	// watchedGVRs is the set of GVRs discovered and watched during Start().
 	// Used by TriggerResync to re-list all resources on demand.
-	watchedGVRs []schema.GroupVersionResource
+	// Guarded by watchedGVRsMu because Start() writes while TriggerResync/WatchedGVRCount read concurrently.
+	watchedGVRsMu sync.RWMutex
+	watchedGVRs   []schema.GroupVersionResource
 
 	factory  dynamicinformer.DynamicSharedInformerFactory
 	stopCh   chan struct{}
@@ -86,9 +88,12 @@ func NewWatcher(log logr.Logger, restConfig *rest.Config, cfg config.Config) (*W
 // Start discovers watchable resources, sets up informers, and begins watching.
 // It blocks until the context is cancelled.
 func (w *Watcher) Start(ctx context.Context) error {
-	w.watchedGVRs = w.discoverResources()
+	discovered := w.discoverResources()
+	w.watchedGVRsMu.Lock()
+	w.watchedGVRs = discovered
+	w.watchedGVRsMu.Unlock()
 
-	w.log.Info("Discovered watchable resources", "count", len(w.watchedGVRs))
+	w.log.Info("Discovered watchable resources", "count", len(discovered))
 
 	w.factory = dynamicinformer.NewDynamicSharedInformerFactory(w.dynamicClient, w.resyncInterval)
 
@@ -257,10 +262,15 @@ func mapsEqual(a, b map[string]string) bool {
 // state through the debounce → REST pipeline, ensuring downstream
 // consistency. Safe to call while informers are running.
 func (w *Watcher) TriggerResync(ctx context.Context) (int, error) {
-	w.log.Info("Starting ad-hoc resync", "gvrCount", len(w.watchedGVRs))
+	w.watchedGVRsMu.RLock()
+	gvrs := make([]schema.GroupVersionResource, len(w.watchedGVRs))
+	copy(gvrs, w.watchedGVRs)
+	w.watchedGVRsMu.RUnlock()
+
+	w.log.Info("Starting ad-hoc resync", "gvrCount", len(gvrs))
 	total := 0
 
-	for _, gvr := range w.watchedGVRs {
+	for _, gvr := range gvrs {
 		list, err := w.dynamicClient.Resource(gvr).List(ctx, metav1.ListOptions{})
 		if err != nil {
 			w.log.Error(err, "Failed to list resource during resync", "resource", gvr.String())
@@ -283,6 +293,8 @@ func (w *Watcher) TriggerResync(ctx context.Context) (int, error) {
 
 // WatchedGVRCount returns the number of GVRs being watched (for health/readiness checks).
 func (w *Watcher) WatchedGVRCount() int {
+	w.watchedGVRsMu.RLock()
+	defer w.watchedGVRsMu.RUnlock()
 	return len(w.watchedGVRs)
 }
 
