@@ -265,3 +265,61 @@ func TestRESTClient_RetriesOnTimeout(t *testing.T) {
 		t.Errorf("Expected 2 attempts, got %d", got)
 	}
 }
+
+func TestRESTClient_SendsCrdSyncPayload(t *testing.T) {
+	var received controller.CrdSyncPayload
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("Failed to read body: %v", err)
+		}
+		if err := json.Unmarshal(body, &received); err != nil {
+			t.Fatalf("Failed to unmarshal body: %v", err)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	client := New(logr.Discard(), server.URL, WithTimeout(5*time.Second))
+
+	payload := controller.CrdSyncPayload{
+		Added:   []string{"certificates.cert-manager.io", "issuers.cert-manager.io"},
+		Deleted: []string{"challenges.cert-manager.io"},
+	}
+
+	err := client.Send(context.Background(), payload)
+	if err != nil {
+		t.Fatalf("Send failed: %v", err)
+	}
+
+	if len(received.Added) != 2 {
+		t.Fatalf("Expected 2 added, got %d", len(received.Added))
+	}
+	if received.Added[0] != "certificates.cert-manager.io" {
+		t.Errorf("Added[0] = %q, want certificates.cert-manager.io", received.Added[0])
+	}
+	if len(received.Deleted) != 1 || received.Deleted[0] != "challenges.cert-manager.io" {
+		t.Errorf("Deleted = %v, want [challenges.cert-manager.io]", received.Deleted)
+	}
+}
+
+func TestRESTClient_SkipsEmptyCrdPayload(t *testing.T) {
+	var called atomic.Bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		called.Store(true)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	client := New(logr.Discard(), server.URL, WithTimeout(5*time.Second))
+
+	// Empty CRD payload — no added or deleted
+	err := client.Send(context.Background(), controller.CrdSyncPayload{})
+	if err != nil {
+		t.Fatalf("Send should not error on empty CRD payload: %v", err)
+	}
+
+	if called.Load() {
+		t.Error("Should not have made HTTP request for empty CRD payload")
+	}
+}

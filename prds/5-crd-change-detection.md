@@ -75,9 +75,9 @@ The payload is intentionally minimal — just CRD names. cluster-whisperer alrea
 
 ## Success Criteria
 
-- [ ] Controller detects CRD add events and POSTs CRD names to the capabilities endpoint
-- [ ] Controller detects CRD delete events and POSTs deletions immediately (bypass debounce)
-- [ ] CRD add events are debounced/batched (operator installs land many CRDs at once)
+- [x] Controller detects CRD add events and POSTs CRD names to the capabilities endpoint
+- [x] Controller detects CRD delete events and POSTs deletions immediately (bypass debounce)
+- [x] CRD add events are debounced/batched (operator installs land many CRDs at once)
 - [x] CRD events are routed to the capabilities endpoint, not the instance sync endpoint
 - [x] `REST_ENDPOINT` renamed to `INSTANCES_ENDPOINT` (breaking change, v0.1.0)
 - [x] New `CAPABILITIES_ENDPOINT` config env var (separate from `INSTANCES_ENDPOINT`)
@@ -98,7 +98,7 @@ The payload is intentionally minimal — just CRD names. cluster-whisperer alrea
   - Add CRDs to `EXCLUDE_RESOURCE_TYPES` default list so they don't flow through the instance pipeline
   - Unit tests for CRD identification, name extraction, and routing logic
 
-- [ ] **M2**: CRD Debounce, Batching & REST Client
+- [x] **M2**: CRD Debounce, Batching & REST Client
   - CRD-specific debounce buffer that batches add events (reuses same debounce pattern)
   - CRD delete events bypass debounce (immediate forwarding)
   - REST client for the capabilities endpoint with the CRD payload format (`added`/`deleted` arrays)
@@ -197,3 +197,4 @@ This PRD covers only the k8s-vectordb-sync side.
 | Date | Milestone | Notes |
 |------|-----------|-------|
 | 2026-02-25 | M1 complete | Renamed REST_ENDPOINT → INSTANCES_ENDPOINT across 9 files, added CAPABILITIES_ENDPOINT config, implemented CRD event detection with IsCRD() + CrdEvents channel routing, added customresourcedefinitions to default exclusions, 9 new unit tests |
+| 2026-02-25 | M2 complete | CrdDebounceBuffer with add debounce/batch and delete bypass, CrdSyncPayload type (added/deleted arrays), Payload interface on REST client for reuse across both pipelines, CRD pipeline wired in main.go gated on CAPABILITIES_ENDPOINT, 12 new unit tests, 4 integration tests |

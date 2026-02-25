@@ -376,7 +376,7 @@ func TestCRDNameExtraction(t *testing.T) {
 	tests := []struct {
 		crdName string
 	}{
-		{"certificates.cert-manager.io"},
+		{testCrdName},
 		{"issuers.cert-manager.io"},
 		{"clusters.postgresql.cnpg.io"},
 		{"redis.redis.redis.opstreelabs.in"},
@@ -401,7 +401,7 @@ func TestEventRouting_CRDAdd_GoesToCrdEvents(t *testing.T) {
 	}
 
 	handler := w.makeEventHandler()
-	crd := makeCRDObj("certificates.cert-manager.io")
+	crd := makeCRDObj(testCrdName)
 	handler.OnAdd(crd, false)
 
 	// Should appear in CrdEvents, not Events
@@ -410,7 +410,7 @@ func TestEventRouting_CRDAdd_GoesToCrdEvents(t *testing.T) {
 		if event.Type != EventAdd {
 			t.Errorf("CrdEvent.Type = %q, want ADD", event.Type)
 		}
-		if event.CrdName != "certificates.cert-manager.io" {
+		if event.CrdName != testCrdName {
 			t.Errorf("CrdEvent.CrdName = %q, want certificates.cert-manager.io", event.CrdName)
 		}
 	case <-time.After(1 * time.Second):
@@ -466,9 +466,9 @@ func TestEventRouting_CRDUpdate_IsIgnored(t *testing.T) {
 	}
 
 	handler := w.makeEventHandler()
-	oldCrd := makeCRDObj("certificates.cert-manager.io")
+	oldCrd := makeCRDObj(testCrdName)
 	oldCrd.SetResourceVersion("100")
-	newCrd := makeCRDObj("certificates.cert-manager.io")
+	newCrd := makeCRDObj(testCrdName)
 	newCrd.SetResourceVersion("101")
 
 	handler.OnUpdate(oldCrd, newCrd)
