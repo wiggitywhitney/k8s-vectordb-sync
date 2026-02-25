@@ -10,11 +10,11 @@
 
 The controller currently watches resource instances and syncs metadata to cluster-whisperer's `/api/v1/instances/sync` endpoint. When a new operator is installed (e.g., cert-manager), the controller correctly detects new pods, deployments, and services. However, nobody tells cluster-whisperer about the **new resource types** (CRDs) that the operator installed.
 
-This means the capabilities collection in the vector DB stays stale. The agent can't answer questions like "what certificate management capabilities does this cluster have?" because the capability inference pipeline (PRD #25 in cluster-whisperer: `discoverResources → inferCapabilities → storeCapabilities`) only runs when explicitly triggered.
+This means the capabilities collection in the vector DB stays stale. The agent can't answer questions like "what certificate management capabilities does this cluster have?" because the capability inference pipeline (`discoverResources → inferCapabilities → storeCapabilities`) only runs when explicitly triggered.
 
 **Concrete example**: Installing cert-manager adds 6 CRDs (Certificate, CertificateRequest, Issuer, ClusterIssuer, Challenge, Order). The controller synced all the new instances, but the agent couldn't answer "what certificate management capabilities does this cluster have?" because the capabilities collection didn't know about the new CRDs.
 
-**Historical context**: PRD #28 in cluster-whisperer (Cluster Sync Watcher) originally planned CRD change detection but was marked "Superseded" when this controller was built. The CRD-watching half was dropped — only instance sync was implemented in PRD #1.
+**Historical context**: The Cluster Sync Watcher feature in cluster-whisperer originally planned CRD change detection but was superseded when this controller was built. The CRD-watching half was dropped — only instance sync was implemented.
 
 ## Solution
 
@@ -156,7 +156,7 @@ The CRD pipeline uses a separate `DebounceBuffer` instance with the same configu
 ### What Happens in cluster-whisperer (Out of Scope for This PRD)
 
 The capabilities scan endpoint (`POST /api/v1/capabilities/scan`) will be implemented separately in cluster-whisperer. It receives CRD names and runs the existing capability inference pipeline:
-- **For adds**: `discoverResources(crdNames) → inferCapabilities(schemas) → storeCapabilities(docs)` (existing PRD #25 pipeline)
+- **For adds**: `discoverResources(crdNames) → inferCapabilities(schemas) → storeCapabilities(docs)`
 - **For deletes**: Remove the capability entry from the vector DB by CRD name
 
 This PRD covers only the k8s-vectordb-sync side.
@@ -188,7 +188,7 @@ This PRD covers only the k8s-vectordb-sync side.
 | 2026-02-25 | Feature disabled by default (empty endpoint) | Backward-compatible. Existing deployments continue working unchanged. Users opt in by setting `CAPABILITIES_ENDPOINT`. |
 | 2026-02-25 | Reuse debounce/batch pattern over custom CRD batching | Operator installs land many CRDs at once (cert-manager: 6, Prometheus: 8+). Same coalescing logic applies. Separate buffer instance keeps CRD and instance batches independent. |
 | 2026-02-25 | Skip CRD update events | CRD spec changes (adding fields, changing versions) are rare. The capability inference pipeline is idempotent — periodic resync or manual trigger handles schema updates. Avoids complexity of diffing CRD specs. |
-| 2026-02-25 | Env var config over Viktor's CapabilityScanConfig CRD | Consistent with PRD #1's approach. CRD-based config adds complexity (defining, generating, reconciling) that isn't needed for this feature. Can be added later if needed. |
+| 2026-02-25 | Env var config over Viktor's CapabilityScanConfig CRD | Consistent with the instance-sync controller's approach. CRD-based config adds complexity (defining, generating, reconciling) that isn't needed for this feature. It can be added later if needed. |
 
 ---
 
