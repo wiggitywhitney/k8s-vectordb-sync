@@ -37,6 +37,12 @@ type ResourceEvent struct {
 	Instance metadata.ResourceInstance
 }
 
+// CrdEvent is a change event for CRD add/delete, routed to the capabilities pipeline.
+type CrdEvent struct {
+	Type    EventType
+	CrdName string // Fully-qualified CRD name (e.g., "certificates.cert-manager.io")
+}
+
 // Watcher discovers API resources, creates dynamic informers, and emits
 // ResourceEvents for add/update/delete changes.
 type Watcher struct {
@@ -48,6 +54,9 @@ type Watcher struct {
 
 	// Events channel for downstream consumers (debouncer/batcher)
 	Events chan ResourceEvent
+
+	// CrdEvents channel for CRD add/delete events (capabilities pipeline)
+	CrdEvents chan CrdEvent
 
 	// watchedGVRs is the set of GVRs discovered and watched during Start().
 	// Used by TriggerResync to re-list all resources on demand.
@@ -81,6 +90,7 @@ func NewWatcher(log logr.Logger, restConfig *rest.Config, cfg config.Config) (*W
 		filter:          f,
 		resyncInterval:  cfg.ResyncInterval,
 		Events:          make(chan ResourceEvent, 10000),
+		CrdEvents:       make(chan CrdEvent, 1000),
 		stopCh:          make(chan struct{}),
 	}, nil
 }
@@ -173,12 +183,25 @@ func (w *Watcher) discoverResources() []schema.GroupVersionResource {
 	return gvrs
 }
 
-// makeEventHandler creates cache.ResourceEventHandlerFuncs that emit ResourceEvents.
+// IsCRD returns true if the unstructured object is a CustomResourceDefinition.
+func IsCRD(obj *unstructured.Unstructured) bool {
+	return obj.GetKind() == "CustomResourceDefinition" &&
+		strings.HasPrefix(obj.GetAPIVersion(), "apiextensions.k8s.io/")
+}
+
+// makeEventHandler creates cache.ResourceEventHandlerFuncs that emit ResourceEvents
+// for regular resources and CrdEvents for CRD add/delete changes.
 func (w *Watcher) makeEventHandler() cache.ResourceEventHandlerFuncs {
 	return cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj any) {
 			u, ok := obj.(*unstructured.Unstructured)
 			if !ok {
+				return
+			}
+			if IsCRD(u) {
+				crdName := u.GetName()
+				w.emitCrd(CrdEvent{Type: EventAdd, CrdName: crdName})
+				w.log.V(1).Info("CRD added", "crdName", crdName)
 				return
 			}
 			instance := metadata.Extract(u)
@@ -190,6 +213,10 @@ func (w *Watcher) makeEventHandler() cache.ResourceEventHandlerFuncs {
 			oldU, ok1 := oldObj.(*unstructured.Unstructured)
 			newU, ok2 := newObj.(*unstructured.Unstructured)
 			if !ok1 || !ok2 {
+				return
+			}
+			// CRD updates are ignored per PRD design decision
+			if IsCRD(newU) {
 				return
 			}
 			// Only emit if metadata we care about has changed
@@ -210,6 +237,12 @@ func (w *Watcher) makeEventHandler() cache.ResourceEventHandlerFuncs {
 			if !ok {
 				return
 			}
+			if IsCRD(u) {
+				crdName := u.GetName()
+				w.emitCrd(CrdEvent{Type: EventDelete, CrdName: crdName})
+				w.log.Info("CRD deleted", "crdName", crdName)
+				return
+			}
 			instance := metadata.Extract(u)
 			w.emit(ResourceEvent{Type: EventDelete, Instance: instance})
 			w.log.Info("Resource deleted",
@@ -228,6 +261,19 @@ func (w *Watcher) emit(event ResourceEvent) {
 	default:
 		w.log.Info("Event channel full, dropping event",
 			"type", event.Type, "id", event.Instance.ID)
+	}
+}
+
+// emitCrd sends a CrdEvent to the CRD events channel without blocking.
+// If the channel is full or the watcher has been stopped, the event is dropped.
+func (w *Watcher) emitCrd(event CrdEvent) {
+	select {
+	case <-w.stopCh:
+		return
+	case w.CrdEvents <- event:
+	default:
+		w.log.Info("CRD event channel full, dropping event",
+			"type", event.Type, "crdName", event.CrdName)
 	}
 }
 

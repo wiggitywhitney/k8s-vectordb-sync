@@ -9,9 +9,13 @@ fullnameOverride: ""
 
 # Controller configuration (maps to environment variables)
 config:
-  # REQUIRED: Set to cluster-whisperer's REST endpoint URL
+  # REQUIRED: Set to cluster-whisperer's instance sync endpoint URL
   # Example: http://cluster-whisperer:3000/api/v1/instances/sync
-  restEndpoint: ""
+  instancesEndpoint: ""
+  # Optional: Set to cluster-whisperer's capabilities scan endpoint URL
+  # When empty, CRD change detection is disabled
+  # Example: http://cluster-whisperer:3000/api/v1/capabilities/scan
+  capabilitiesEndpoint: ""
   # Debounce window per resource in milliseconds
   debounceWindowMs: 10000
   # Maximum time before flushing a batch in milliseconds
@@ -23,7 +27,7 @@ config:
   # Comma-separated resource types to watch (empty = all discoverable)
   watchResourceTypes: ""
   # Comma-separated resource types to exclude
-  excludeResourceTypes: "events,leases,endpointslices"
+  excludeResourceTypes: "events,leases,endpointslices,customresourcedefinitions"
   # Bind address for the API server (resync trigger endpoint)
   apiBindAddress: ":8082"
   # Logging verbosity

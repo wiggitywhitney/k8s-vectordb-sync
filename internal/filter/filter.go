@@ -13,6 +13,7 @@ var DefaultExclusions = []string{
 	"leases",
 	"endpointslices",
 	"componentstatuses",
+	"customresourcedefinitions",
 }
 
 // ResourceFilter determines which discovered API resources should be watched.

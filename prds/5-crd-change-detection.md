@@ -78,10 +78,10 @@ The payload is intentionally minimal — just CRD names. cluster-whisperer alrea
 - [ ] Controller detects CRD add events and POSTs CRD names to the capabilities endpoint
 - [ ] Controller detects CRD delete events and POSTs deletions immediately (bypass debounce)
 - [ ] CRD add events are debounced/batched (operator installs land many CRDs at once)
-- [ ] CRD events are routed to the capabilities endpoint, not the instance sync endpoint
-- [ ] `REST_ENDPOINT` renamed to `INSTANCES_ENDPOINT` (breaking change, v0.1.0)
-- [ ] New `CAPABILITIES_ENDPOINT` config env var (separate from `INSTANCES_ENDPOINT`)
-- [ ] Helm chart updated with both renamed and new configuration options
+- [x] CRD events are routed to the capabilities endpoint, not the instance sync endpoint
+- [x] `REST_ENDPOINT` renamed to `INSTANCES_ENDPOINT` (breaking change, v0.1.0)
+- [x] New `CAPABILITIES_ENDPOINT` config env var (separate from `INSTANCES_ENDPOINT`)
+- [x] Helm chart updated with both renamed and new configuration options
 - [ ] All three test tiers pass (unit, integration, e2e)
 - [ ] End-to-end: install a CRD → controller detects → capabilities endpoint receives CRD name
 - [ ] Full-stack validation: install real operators (CloudNativePG, Redis, MongoDB) → CRDs appear in vector DB with inferred descriptions
@@ -89,7 +89,7 @@ The payload is intentionally minimal — just CRD names. cluster-whisperer alrea
 
 ## Milestones
 
-- [ ] **M1**: Endpoint Rename & CRD Event Detection
+- [x] **M1**: Endpoint Rename & CRD Event Detection
   - Rename `REST_ENDPOINT` → `INSTANCES_ENDPOINT` across codebase (config, Helm chart, README, tests, CI)
   - Clean break — no deprecation fallback (v0.1.0, single user)
   - Identify CRD resources (`customresourcedefinitions.apiextensions.k8s.io`) in the event stream
@@ -196,4 +196,4 @@ This PRD covers only the k8s-vectordb-sync side.
 
 | Date | Milestone | Notes |
 |------|-----------|-------|
-| | | |
+| 2026-02-25 | M1 complete | Renamed REST_ENDPOINT → INSTANCES_ENDPOINT across 9 files, added CAPABILITIES_ENDPOINT config, implemented CRD event detection with IsCRD() + CrdEvents channel routing, added customresourcedefinitions to default exclusions, 9 new unit tests |

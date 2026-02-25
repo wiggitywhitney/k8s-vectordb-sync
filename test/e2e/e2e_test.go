@@ -121,7 +121,7 @@ var _ = Describe("Manager", Ordered, func() {
 		cmd = exec.Command("kubectl", "set", "env",
 			"deployment/k8s-vectordb-sync-controller-manager",
 			"-n", namespace,
-			"REST_ENDPOINT=http://mock-server.default.svc:8080/api/v1/instances/sync",
+			"INSTANCES_ENDPOINT=http://mock-server.default.svc:8080/api/v1/instances/sync",
 			"DEBOUNCE_WINDOW_MS=2000",
 			"BATCH_FLUSH_INTERVAL_MS=2000",
 			"WATCH_RESOURCE_TYPES=deployments",

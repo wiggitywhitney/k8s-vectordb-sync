@@ -153,6 +153,7 @@ func makeFakeWatcher(objects []runtime.Object, gvrs []schema.GroupVersionResourc
 		log:           logr.Discard(),
 		dynamicClient: fakeClient,
 		Events:        make(chan ResourceEvent, 1000),
+		CrdEvents:     make(chan CrdEvent, 1000),
 		watchedGVRs:   gvrs,
 		stopCh:        make(chan struct{}),
 	}
@@ -300,5 +301,267 @@ func TestWatchedGVRCount_Empty(t *testing.T) {
 
 	if w.WatchedGVRCount() != 0 {
 		t.Errorf("Expected 0, got %d", w.WatchedGVRCount())
+	}
+}
+
+// --- CRD detection and routing tests ---
+
+func makeCRDObj(name string) *unstructured.Unstructured {
+	return &unstructured.Unstructured{
+		Object: map[string]any{
+			"apiVersion": "apiextensions.k8s.io/v1",
+			"kind":       "CustomResourceDefinition",
+			"metadata": map[string]any{
+				"name":              name,
+				"creationTimestamp": "2026-02-25T10:00:00Z",
+			},
+		},
+	}
+}
+
+func TestIsCRD_True(t *testing.T) {
+	tests := []struct {
+		name       string
+		apiVersion string
+	}{
+		{"v1 CRD", "apiextensions.k8s.io/v1"},
+		{"v1beta1 CRD", "apiextensions.k8s.io/v1beta1"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			obj := &unstructured.Unstructured{
+				Object: map[string]any{
+					"apiVersion": tt.apiVersion,
+					"kind":       "CustomResourceDefinition",
+					"metadata":   map[string]any{"name": "test.example.io"},
+				},
+			}
+			if !IsCRD(obj) {
+				t.Errorf("IsCRD() = false for apiVersion=%q, want true", tt.apiVersion)
+			}
+		})
+	}
+}
+
+func TestIsCRD_False(t *testing.T) {
+	tests := []struct {
+		name       string
+		apiVersion string
+		kind       string
+	}{
+		{"Deployment", "apps/v1", "Deployment"},
+		{"Service", "v1", "Service"},
+		{"wrong kind same group", "apiextensions.k8s.io/v1", "ConversionReview"},
+		{"wrong group same kind", "example.io/v1", "CustomResourceDefinition"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			obj := &unstructured.Unstructured{
+				Object: map[string]any{
+					"apiVersion": tt.apiVersion,
+					"kind":       tt.kind,
+					"metadata":   map[string]any{"name": "test"},
+				},
+			}
+			if IsCRD(obj) {
+				t.Errorf("IsCRD() = true for apiVersion=%q kind=%q, want false", tt.apiVersion, tt.kind)
+			}
+		})
+	}
+}
+
+func TestCRDNameExtraction(t *testing.T) {
+	tests := []struct {
+		crdName string
+	}{
+		{"certificates.cert-manager.io"},
+		{"issuers.cert-manager.io"},
+		{"clusters.postgresql.cnpg.io"},
+		{"redis.redis.redis.opstreelabs.in"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.crdName, func(t *testing.T) {
+			obj := makeCRDObj(tt.crdName)
+			if obj.GetName() != tt.crdName {
+				t.Errorf("GetName() = %q, want %q", obj.GetName(), tt.crdName)
+			}
+		})
+	}
+}
+
+func TestEventRouting_CRDAdd_GoesToCrdEvents(t *testing.T) {
+	w := &Watcher{
+		log:       logr.Discard(),
+		Events:    make(chan ResourceEvent, 10),
+		CrdEvents: make(chan CrdEvent, 10),
+		stopCh:    make(chan struct{}),
+	}
+
+	handler := w.makeEventHandler()
+	crd := makeCRDObj("certificates.cert-manager.io")
+	handler.OnAdd(crd, false)
+
+	// Should appear in CrdEvents, not Events
+	select {
+	case event := <-w.CrdEvents:
+		if event.Type != EventAdd {
+			t.Errorf("CrdEvent.Type = %q, want ADD", event.Type)
+		}
+		if event.CrdName != "certificates.cert-manager.io" {
+			t.Errorf("CrdEvent.CrdName = %q, want certificates.cert-manager.io", event.CrdName)
+		}
+	case <-time.After(1 * time.Second):
+		t.Fatal("Timed out waiting for CRD event on CrdEvents channel")
+	}
+
+	// Events channel should be empty
+	select {
+	case event := <-w.Events:
+		t.Errorf("CRD event should not appear in Events channel, got %+v", event)
+	default:
+		// Good — nothing in Events
+	}
+}
+
+func TestEventRouting_CRDDelete_GoesToCrdEvents(t *testing.T) {
+	w := &Watcher{
+		log:       logr.Discard(),
+		Events:    make(chan ResourceEvent, 10),
+		CrdEvents: make(chan CrdEvent, 10),
+		stopCh:    make(chan struct{}),
+	}
+
+	handler := w.makeEventHandler()
+	crd := makeCRDObj("issuers.cert-manager.io")
+	handler.OnDelete(crd)
+
+	select {
+	case event := <-w.CrdEvents:
+		if event.Type != EventDelete {
+			t.Errorf("CrdEvent.Type = %q, want DELETE", event.Type)
+		}
+		if event.CrdName != "issuers.cert-manager.io" {
+			t.Errorf("CrdEvent.CrdName = %q, want issuers.cert-manager.io", event.CrdName)
+		}
+	case <-time.After(1 * time.Second):
+		t.Fatal("Timed out waiting for CRD delete event on CrdEvents channel")
+	}
+
+	select {
+	case event := <-w.Events:
+		t.Errorf("CRD delete should not appear in Events channel, got %+v", event)
+	default:
+	}
+}
+
+func TestEventRouting_CRDUpdate_IsIgnored(t *testing.T) {
+	w := &Watcher{
+		log:       logr.Discard(),
+		Events:    make(chan ResourceEvent, 10),
+		CrdEvents: make(chan CrdEvent, 10),
+		stopCh:    make(chan struct{}),
+	}
+
+	handler := w.makeEventHandler()
+	oldCrd := makeCRDObj("certificates.cert-manager.io")
+	oldCrd.SetResourceVersion("100")
+	newCrd := makeCRDObj("certificates.cert-manager.io")
+	newCrd.SetResourceVersion("101")
+
+	handler.OnUpdate(oldCrd, newCrd)
+
+	// Neither channel should have events
+	select {
+	case event := <-w.CrdEvents:
+		t.Errorf("CRD update should be ignored, got CrdEvent: %+v", event)
+	default:
+	}
+
+	select {
+	case event := <-w.Events:
+		t.Errorf("CRD update should not go to Events, got: %+v", event)
+	default:
+	}
+}
+
+func TestEventRouting_RegularResource_GoesToEvents(t *testing.T) {
+	w := &Watcher{
+		log:       logr.Discard(),
+		Events:    make(chan ResourceEvent, 10),
+		CrdEvents: make(chan CrdEvent, 10),
+		stopCh:    make(chan struct{}),
+	}
+
+	handler := w.makeEventHandler()
+	dep := makeUnstructured("apps/v1", "Deployment", "default", "nginx", map[string]string{"app": "nginx"})
+	handler.OnAdd(dep, false)
+
+	select {
+	case event := <-w.Events:
+		if event.Type != EventAdd {
+			t.Errorf("ResourceEvent.Type = %q, want ADD", event.Type)
+		}
+		if event.Instance.Kind != "Deployment" {
+			t.Errorf("ResourceEvent.Instance.Kind = %q, want Deployment", event.Instance.Kind)
+		}
+	case <-time.After(1 * time.Second):
+		t.Fatal("Timed out waiting for resource event on Events channel")
+	}
+
+	select {
+	case event := <-w.CrdEvents:
+		t.Errorf("Regular resource should not appear in CrdEvents channel, got %+v", event)
+	default:
+	}
+}
+
+func TestEmitCrd_NonBlocking(t *testing.T) {
+	w := &Watcher{
+		CrdEvents: make(chan CrdEvent, 1),
+		stopCh:    make(chan struct{}),
+		log:       logr.Discard(),
+	}
+
+	event1 := CrdEvent{Type: EventAdd, CrdName: "test1.example.io"}
+	event2 := CrdEvent{Type: EventAdd, CrdName: "test2.example.io"}
+
+	w.emitCrd(event1)
+
+	// Second should not block (channel full, event dropped)
+	done := make(chan bool, 1)
+	go func() {
+		w.emitCrd(event2)
+		done <- true
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(1 * time.Second):
+		t.Fatal("emitCrd() blocked when channel was full")
+	}
+
+	received := <-w.CrdEvents
+	if received.CrdName != "test1.example.io" {
+		t.Errorf("Expected test1.example.io, got %s", received.CrdName)
+	}
+}
+
+func TestEmitCrd_AfterStopDoesNotPanic(t *testing.T) {
+	w := &Watcher{
+		CrdEvents: make(chan CrdEvent, 10),
+		stopCh:    make(chan struct{}),
+		log:       logr.Discard(),
+	}
+
+	w.Stop()
+
+	for i := range 100 {
+		w.emitCrd(CrdEvent{
+			Type:    EventAdd,
+			CrdName: fmt.Sprintf("test-%d.example.io", i),
+		})
 	}
 }

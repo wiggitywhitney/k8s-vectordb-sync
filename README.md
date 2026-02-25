@@ -41,7 +41,7 @@ Delete events bypass the debounce window and are forwarded immediately to minimi
 helm install k8s-vectordb-sync charts/k8s-vectordb-sync \
   --namespace k8s-vectordb-sync-system \
   --create-namespace \
-  --set config.restEndpoint=http://cluster-whisperer:3000/api/v1/instances/sync
+  --set config.instancesEndpoint=http://cluster-whisperer:3000/api/v1/instances/sync
 ```
 
 Verify the controller is running:
@@ -58,13 +58,14 @@ All configuration is through environment variables. When deploying with Helm, th
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `REST_ENDPOINT` | `http://localhost:3000/api/v1/instances/sync` | cluster-whisperer REST URL |
+| `INSTANCES_ENDPOINT` | `http://localhost:3000/api/v1/instances/sync` | cluster-whisperer instance sync URL |
+| `CAPABILITIES_ENDPOINT` | *(empty = disabled)* | cluster-whisperer capabilities scan URL |
 | `DEBOUNCE_WINDOW_MS` | `10000` | How long to wait (in milliseconds) after a resource changes before syncing it. If the resource changes again during this window, the timer resets. |
 | `BATCH_FLUSH_INTERVAL_MS` | `5000` | Maximum time in milliseconds before sending accumulated changes, even if the batch is not full. |
 | `BATCH_MAX_SIZE` | `50` | Maximum number of upserts in a single payload. When this limit is reached, the batch is sent immediately. |
 | `RESYNC_INTERVAL_MIN` | `1440` | How often (in minutes) the controller performs a full resync of all resources. The default is 24 hours. |
 | `WATCH_RESOURCE_TYPES` | *(empty = all)* | Comma-separated list of resource types to watch. When empty, the controller watches all discoverable types. |
-| `EXCLUDE_RESOURCE_TYPES` | `events,leases,endpointslices` | Comma-separated list of resource types to skip. These are excluded because they change frequently and have low value for semantic search. |
+| `EXCLUDE_RESOURCE_TYPES` | `events,leases,endpointslices,customresourcedefinitions` | Comma-separated list of resource types to skip. These are excluded because they change frequently and have low value for semantic search. CRDs are excluded from the instance pipeline because they are type definitions, not running workloads — CRD changes are routed to the capabilities pipeline instead. |
 | `API_BIND_ADDRESS` | `:8082` | Bind address for the resync trigger API. |
 | `LOG_LEVEL` | `info` | Logging verbosity. |
 
@@ -77,7 +78,7 @@ By default, the controller watches all discoverable resource types except high-c
 helm install k8s-vectordb-sync charts/k8s-vectordb-sync \
   --namespace k8s-vectordb-sync-system \
   --create-namespace \
-  --set config.restEndpoint=http://cluster-whisperer:3000/api/v1/instances/sync \
+  --set config.instancesEndpoint=http://cluster-whisperer:3000/api/v1/instances/sync \
   --set config.watchResourceTypes="deployments,services,statefulsets,configmaps"
 ```
 

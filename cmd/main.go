@@ -72,7 +72,8 @@ func main() {
 
 	cfg := config.Load()
 	setupLog.Info("Configuration loaded",
-		"restEndpoint", cfg.RESTEndpoint,
+		"instancesEndpoint", cfg.InstancesEndpoint,
+		"capabilitiesEndpoint", cfg.CapabilitiesEndpoint,
 		"debounceWindow", cfg.DebounceWindow,
 		"batchFlushInterval", cfg.BatchFlushInterval,
 		"batchMaxSize", cfg.BatchMaxSize,
@@ -131,7 +132,7 @@ func main() {
 	// REST client sends batched payloads to cluster-whisperer
 	restClient := client.New(
 		ctrl.Log.WithName("rest-client"),
-		cfg.RESTEndpoint,
+		cfg.InstancesEndpoint,
 	)
 
 	// Add sender as a runnable that consumes payloads and POSTs them

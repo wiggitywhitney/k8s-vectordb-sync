@@ -1,6 +1,7 @@
 package filter
 
 import (
+	"slices"
 	"testing"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -125,5 +126,11 @@ func TestNew_DefaultExclusions(t *testing.T) {
 		if ShouldWatch(f, resource) {
 			t.Errorf("Default exclusion %q should not be watched", excluded)
 		}
+	}
+}
+
+func TestDefaultExclusions_IncludesCRDs(t *testing.T) {
+	if !slices.Contains(DefaultExclusions, "customresourcedefinitions") {
+		t.Error("DefaultExclusions should include customresourcedefinitions")
 	}
 }
