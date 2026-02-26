@@ -395,22 +395,22 @@ func (c *crdPayloadCollector) add(p controller.CrdSyncPayload) {
 	})
 }
 
-func (c *crdPayloadCollector) allAdded() []string {
+func (c *crdPayloadCollector) allUpserts() []string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	var result []string
 	for _, rp := range c.payloads {
-		result = append(result, rp.Payload.Added...)
+		result = append(result, rp.Payload.Upserts...)
 	}
 	return result
 }
 
-func (c *crdPayloadCollector) allDeleted() []string {
+func (c *crdPayloadCollector) allDeletes() []string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	var result []string
 	for _, rp := range c.payloads {
-		result = append(result, rp.Payload.Deleted...)
+		result = append(result, rp.Payload.Deletes...)
 	}
 	return result
 }
@@ -496,7 +496,7 @@ func TestIntegration_CrdPipeline_AddsFlowThroughDebounceToHTTPServer(t *testing.
 		t.Fatal("CRD sender did not finish within timeout")
 	}
 
-	added := collector.allAdded()
+	added := collector.allUpserts()
 	if len(added) != 3 {
 		t.Fatalf("Expected 3 CRD adds at HTTP server, got %d", len(added))
 	}
@@ -539,7 +539,7 @@ func TestIntegration_CrdPipeline_DeletesArriveImmediately(t *testing.T) {
 	// Poll for the delete to arrive — should be almost immediate
 	deadline := time.After(1 * time.Second)
 	for {
-		deleted := collector.allDeleted()
+		deleted := collector.allDeletes()
 		if len(deleted) > 0 {
 			elapsed := time.Since(sentAt)
 			if elapsed > 1*time.Second {
@@ -588,7 +588,7 @@ func TestIntegration_CrdPipeline_GracefulShutdownDrainsPending(t *testing.T) {
 		t.Fatal("CRD sender did not drain within timeout after context cancellation")
 	}
 
-	added := collector.allAdded()
+	added := collector.allUpserts()
 	if len(added) != 2 {
 		t.Fatalf("Expected 2 CRD adds drained during shutdown, got %d", len(added))
 	}
@@ -634,7 +634,7 @@ func TestIntegration_CrdPipeline_DeduplicatesRepeatedAdds(t *testing.T) {
 	}
 
 	// Should get exactly 1 add (deduplicated)
-	added := collector.allAdded()
+	added := collector.allUpserts()
 	if len(added) != 1 {
 		t.Fatalf("Expected 1 CRD add (deduplicated), got %d", len(added))
 	}

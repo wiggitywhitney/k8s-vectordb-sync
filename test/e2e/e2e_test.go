@@ -66,8 +66,8 @@ type syncPayload struct {
 
 // crdSyncPayload mirrors the controller's CrdSyncPayload for deserializing mock server responses.
 type crdSyncPayload struct {
-	Added   []string `json:"added"`
-	Deleted []string `json:"deleted"`
+	Upserts []string `json:"upserts"`
+	Deletes []string `json:"deletes"`
 }
 
 // resourceInstance mirrors the controller's ResourceInstance for deserializing mock server responses.
@@ -553,7 +553,7 @@ var _ = Describe("Manager", Ordered, func() {
 				payloads := getCrdMockPayloads()
 				found := false
 				for _, p := range payloads {
-					for _, name := range p.Added {
+					for _, name := range p.Upserts {
 						if name == "widgets.e2etest.example.com" {
 							found = true
 						}
@@ -577,7 +577,7 @@ var _ = Describe("Manager", Ordered, func() {
 				payloads := getCrdMockPayloads()
 				found := false
 				for _, p := range payloads {
-					for _, name := range p.Deleted {
+					for _, name := range p.Deletes {
 						if name == "widgets.e2etest.example.com" {
 							found = true
 						}

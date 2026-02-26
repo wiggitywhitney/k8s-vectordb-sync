@@ -21,21 +21,21 @@ func crdTestConfig(debounceMs, flushMs, maxBatch int) config.Config {
 
 func TestCrdSyncPayload_JSONStructure(t *testing.T) {
 	payload := CrdSyncPayload{
-		Added:   []string{"certificates.cert-manager.io", "issuers.cert-manager.io"},
-		Deleted: []string{"challenges.cert-manager.io"},
+		Upserts: []string{"certificates.cert-manager.io", "issuers.cert-manager.io"},
+		Deletes: []string{"challenges.cert-manager.io"},
 	}
 
-	if len(payload.Added) != 2 {
-		t.Errorf("Added = %d, want 2", len(payload.Added))
+	if len(payload.Upserts) != 2 {
+		t.Errorf("Upserts = %d, want 2", len(payload.Upserts))
 	}
-	if len(payload.Deleted) != 1 {
-		t.Errorf("Deleted = %d, want 1", len(payload.Deleted))
+	if len(payload.Deletes) != 1 {
+		t.Errorf("Deletes = %d, want 1", len(payload.Deletes))
 	}
-	if payload.Added[0] != "certificates.cert-manager.io" {
-		t.Errorf("Added[0] = %q, want certificates.cert-manager.io", payload.Added[0])
+	if payload.Upserts[0] != "certificates.cert-manager.io" {
+		t.Errorf("Upserts[0] = %q, want certificates.cert-manager.io", payload.Upserts[0])
 	}
-	if payload.Deleted[0] != "challenges.cert-manager.io" {
-		t.Errorf("Deleted[0] = %q, want challenges.cert-manager.io", payload.Deleted[0])
+	if payload.Deletes[0] != "challenges.cert-manager.io" {
+		t.Errorf("Deletes[0] = %q, want challenges.cert-manager.io", payload.Deletes[0])
 	}
 }
 
@@ -45,14 +45,14 @@ func TestCrdSyncPayload_IsEmpty(t *testing.T) {
 		t.Error("Empty CrdSyncPayload should report IsEmpty() = true")
 	}
 
-	withAdded := CrdSyncPayload{Added: []string{"test.example.io"}}
+	withAdded := CrdSyncPayload{Upserts: []string{"test.example.io"}}
 	if withAdded.IsEmpty() {
-		t.Error("CrdSyncPayload with Added should not be empty")
+		t.Error("CrdSyncPayload with Upserts should not be empty")
 	}
 
-	withDeleted := CrdSyncPayload{Deleted: []string{"test.example.io"}}
+	withDeleted := CrdSyncPayload{Deletes: []string{"test.example.io"}}
 	if withDeleted.IsEmpty() {
-		t.Error("CrdSyncPayload with Deleted should not be empty")
+		t.Error("CrdSyncPayload with Deletes should not be empty")
 	}
 }
 
@@ -72,14 +72,14 @@ func TestCrdDebounce_DeleteSkipsDebounce(t *testing.T) {
 	// Delete should arrive immediately (not debounced)
 	select {
 	case payload := <-db.Payloads:
-		if len(payload.Deleted) != 1 {
-			t.Fatalf("Expected 1 delete, got %d", len(payload.Deleted))
+		if len(payload.Deletes) != 1 {
+			t.Fatalf("Expected 1 delete, got %d", len(payload.Deletes))
 		}
-		if payload.Deleted[0] != testCrdName {
-			t.Errorf("Delete name = %q, want %q", payload.Deleted[0], testCrdName)
+		if payload.Deletes[0] != testCrdName {
+			t.Errorf("Delete name = %q, want %q", payload.Deletes[0], testCrdName)
 		}
-		if len(payload.Added) != 0 {
-			t.Errorf("Expected 0 added in delete payload, got %d", len(payload.Added))
+		if len(payload.Upserts) != 0 {
+			t.Errorf("Expected 0 upserts in delete payload, got %d", len(payload.Upserts))
 		}
 	case <-time.After(1 * time.Second):
 		t.Fatal("Delete was not forwarded immediately")
@@ -114,14 +114,14 @@ func TestCrdDebounce_AddIsDebounced(t *testing.T) {
 	// Collect payloads
 	added := make([]string, 0, 1)
 	for payload := range db.Payloads {
-		added = append(added, payload.Added...)
+		added = append(added, payload.Upserts...)
 	}
 
 	if len(added) != 1 {
 		t.Fatalf("Expected 1 added after flush, got %d", len(added))
 	}
 	if added[0] != testCrdName {
-		t.Errorf("Added[0] = %q, want %q", added[0], testCrdName)
+		t.Errorf("Upserts[0] = %q, want %q", added[0], testCrdName)
 	}
 }
 
@@ -144,14 +144,14 @@ func TestCrdDebounce_DeduplicatesRepeatedAdds(t *testing.T) {
 	// Should get exactly 1 add (deduplicated)
 	added := make([]string, 0, 1)
 	for payload := range db.Payloads {
-		added = append(added, payload.Added...)
+		added = append(added, payload.Upserts...)
 	}
 
 	if len(added) != 1 {
 		t.Fatalf("Expected 1 add (deduplicated), got %d", len(added))
 	}
 	if added[0] != testCrdName {
-		t.Errorf("Added[0] = %q, want %q", added[0], testCrdName)
+		t.Errorf("Upserts[0] = %q, want %q", added[0], testCrdName)
 	}
 }
 
@@ -173,8 +173,8 @@ func TestCrdDebounce_DeleteCancelsPendingAdd(t *testing.T) {
 	// Delete should arrive immediately
 	select {
 	case payload := <-db.Payloads:
-		if len(payload.Deleted) != 1 {
-			t.Fatalf("Expected 1 delete, got %d deletes, %d added", len(payload.Deleted), len(payload.Added))
+		if len(payload.Deletes) != 1 {
+			t.Fatalf("Expected 1 delete, got %d deletes, %d added", len(payload.Deletes), len(payload.Upserts))
 		}
 	case <-time.After(1 * time.Second):
 		t.Fatal("Delete was not forwarded")
@@ -205,7 +205,7 @@ func TestCrdDebounce_BatchMultipleCrds(t *testing.T) {
 	// Collect all adds across payloads
 	var totalAdded int
 	for payload := range db.Payloads {
-		totalAdded += len(payload.Added)
+		totalAdded += len(payload.Upserts)
 	}
 
 	if totalAdded != 3 {
@@ -226,8 +226,8 @@ func TestCrdDebounce_FlushOnInterval(t *testing.T) {
 	// Wait for debounce (10ms) + flush interval (200ms) + margin
 	select {
 	case payload := <-db.Payloads:
-		if len(payload.Added) != 1 {
-			t.Fatalf("Expected 1 add on flush interval, got %d", len(payload.Added))
+		if len(payload.Upserts) != 1 {
+			t.Fatalf("Expected 1 add on flush interval, got %d", len(payload.Upserts))
 		}
 	case <-time.After(1 * time.Second):
 		t.Fatal("Flush interval did not trigger")
@@ -253,14 +253,14 @@ func TestCrdDebounce_ChannelCloseFlushesAllPending(t *testing.T) {
 	// The Payloads channel should receive the pending add and then close
 	added := make([]string, 0, 1)
 	for payload := range db.Payloads {
-		added = append(added, payload.Added...)
+		added = append(added, payload.Upserts...)
 	}
 
 	if len(added) != 1 {
 		t.Fatalf("Expected 1 add flushed on channel close, got %d", len(added))
 	}
 	if added[0] != testCrdName {
-		t.Errorf("Added[0] = %q, want %q", added[0], testCrdName)
+		t.Errorf("Upserts[0] = %q, want %q", added[0], testCrdName)
 	}
 }
 
@@ -278,8 +278,8 @@ func TestCrdDebounce_SeparateAddAndDeletePayloads(t *testing.T) {
 	// Delete arrives immediately as its own payload
 	select {
 	case payload := <-db.Payloads:
-		if len(payload.Deleted) != 1 || payload.Deleted[0] != "challenges.cert-manager.io" {
-			t.Errorf("Expected delete payload for challenges, got deleted=%v added=%d", payload.Deleted, len(payload.Added))
+		if len(payload.Deletes) != 1 || payload.Deletes[0] != "challenges.cert-manager.io" {
+			t.Errorf("Expected delete payload for challenges, got deletes=%v upserts=%d", payload.Deletes, len(payload.Upserts))
 		}
 	case <-time.After(1 * time.Second):
 		t.Fatal("Delete payload not received")
@@ -291,10 +291,10 @@ func TestCrdDebounce_SeparateAddAndDeletePayloads(t *testing.T) {
 
 	var gotAdd bool
 	for payload := range db.Payloads {
-		if len(payload.Added) > 0 {
+		if len(payload.Upserts) > 0 {
 			gotAdd = true
-			if payload.Added[0] != "certificates.cert-manager.io" {
-				t.Errorf("Expected add for certificates, got %s", payload.Added[0])
+			if payload.Upserts[0] != "certificates.cert-manager.io" {
+				t.Errorf("Expected add for certificates, got %s", payload.Upserts[0])
 			}
 		}
 	}

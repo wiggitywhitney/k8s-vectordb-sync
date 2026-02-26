@@ -147,7 +147,7 @@ When the CRD pipeline is enabled, the controller POSTs CRD changes to the `/api/
 
 ```json
 {
-  "added": [
+  "upserts": [
     "certificates.cert-manager.io",
     "issuers.cert-manager.io",
     "clusterissuers.cert-manager.io"
@@ -159,7 +159,7 @@ When the CRD pipeline is enabled, the controller POSTs CRD changes to the `/api/
 
 ```json
 {
-  "deleted": [
+  "deletes": [
     "certificates.cert-manager.io"
   ]
 }

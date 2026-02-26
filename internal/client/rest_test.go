@@ -283,8 +283,8 @@ func TestRESTClient_SendsCrdSyncPayload(t *testing.T) {
 	client := New(logr.Discard(), server.URL, WithTimeout(5*time.Second))
 
 	payload := controller.CrdSyncPayload{
-		Added:   []string{"certificates.cert-manager.io", "issuers.cert-manager.io"},
-		Deleted: []string{"challenges.cert-manager.io"},
+		Upserts: []string{"certificates.cert-manager.io", "issuers.cert-manager.io"},
+		Deletes: []string{"challenges.cert-manager.io"},
 	}
 
 	err := client.Send(context.Background(), payload)
@@ -292,14 +292,14 @@ func TestRESTClient_SendsCrdSyncPayload(t *testing.T) {
 		t.Fatalf("Send failed: %v", err)
 	}
 
-	if len(received.Added) != 2 {
-		t.Fatalf("Expected 2 added, got %d", len(received.Added))
+	if len(received.Upserts) != 2 {
+		t.Fatalf("Expected 2 upserts, got %d", len(received.Upserts))
 	}
-	if received.Added[0] != "certificates.cert-manager.io" {
-		t.Errorf("Added[0] = %q, want certificates.cert-manager.io", received.Added[0])
+	if received.Upserts[0] != "certificates.cert-manager.io" {
+		t.Errorf("Upserts[0] = %q, want certificates.cert-manager.io", received.Upserts[0])
 	}
-	if len(received.Deleted) != 1 || received.Deleted[0] != "challenges.cert-manager.io" {
-		t.Errorf("Deleted = %v, want [challenges.cert-manager.io]", received.Deleted)
+	if len(received.Deletes) != 1 || received.Deletes[0] != "challenges.cert-manager.io" {
+		t.Errorf("Deletes = %v, want [challenges.cert-manager.io]", received.Deletes)
 	}
 }
 

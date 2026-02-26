@@ -12,14 +12,15 @@ import (
 
 // CrdSyncPayload is the batched payload for CRD events sent to the capabilities endpoint.
 // It contains CRD fully-qualified names (e.g., "certificates.cert-manager.io").
+// Uses upserts/deletes field names to match the instance sync payload format.
 type CrdSyncPayload struct {
-	Added   []string `json:"added,omitempty"`
-	Deleted []string `json:"deleted,omitempty"`
+	Upserts []string `json:"upserts,omitempty"`
+	Deletes []string `json:"deletes,omitempty"`
 }
 
 // IsEmpty reports whether the payload contains no CRD events.
 func (p CrdSyncPayload) IsEmpty() bool {
-	return len(p.Added) == 0 && len(p.Deleted) == 0
+	return len(p.Upserts) == 0 && len(p.Deletes) == 0
 }
 
 // CrdDebounceBuffer accumulates CrdEvents from the watcher, deduplicates
@@ -109,7 +110,7 @@ func (d *CrdDebounceBuffer) handleEvent(event CrdEvent) {
 		d.pendingMu.Unlock()
 
 		payload := CrdSyncPayload{
-			Deleted: []string{event.CrdName},
+			Deletes: []string{event.CrdName},
 		}
 		d.emitPayload(payload)
 		d.log.V(1).Info("CRD delete forwarded immediately", "crd", event.CrdName)
@@ -178,26 +179,26 @@ func (d *CrdDebounceBuffer) flushPending() {
 		return
 	}
 
-	var added []string
+	var upserts []string
 
 	for name, change := range d.pending {
 		if change.ready {
-			added = append(added, change.crdName)
+			upserts = append(upserts, change.crdName)
 			delete(d.pending, name)
 		}
 	}
 
 	d.pendingMu.Unlock()
 
-	if len(added) == 0 {
+	if len(upserts) == 0 {
 		return
 	}
 
 	payload := CrdSyncPayload{
-		Added: added,
+		Upserts: upserts,
 	}
 	d.emitPayload(payload)
-	d.log.Info("CRD batch flushed", "added", len(added))
+	d.log.Info("CRD batch flushed", "upserts", len(upserts))
 }
 
 // flushAllPending forces a flush of all pending CRD adds regardless of
@@ -210,18 +211,18 @@ func (d *CrdDebounceBuffer) flushAllPending() {
 		return
 	}
 
-	var added []string
+	var upserts []string
 	for name, change := range d.pending {
 		change.timer.Stop()
-		added = append(added, change.crdName)
+		upserts = append(upserts, change.crdName)
 		delete(d.pending, name)
 	}
 
 	d.pendingMu.Unlock()
 
-	if len(added) > 0 {
-		d.emitPayload(CrdSyncPayload{Added: added})
-		d.log.Info("CRD final flush on shutdown", "added", len(added))
+	if len(upserts) > 0 {
+		d.emitPayload(CrdSyncPayload{Upserts: upserts})
+		d.log.Info("CRD final flush on shutdown", "upserts", len(upserts))
 	}
 }
 
@@ -248,8 +249,8 @@ func (d *CrdDebounceBuffer) emitPayload(payload CrdSyncPayload) {
 	case d.Payloads <- payload:
 	default:
 		d.log.Info("CRD payload channel full, dropping batch",
-			"added", len(payload.Added),
-			"deleted", len(payload.Deleted),
+			"upserts", len(payload.Upserts),
+			"deletes", len(payload.Deletes),
 		)
 	}
 }

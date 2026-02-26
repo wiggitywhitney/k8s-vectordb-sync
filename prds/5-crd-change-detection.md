@@ -52,7 +52,7 @@ Kubernetes Cluster          k8s-vectordb-sync           cluster-whisperer       
 **Add/Update** (batched, POST to capabilities endpoint):
 ```json
 {
-  "added": [
+  "upserts": [
     "certificates.cert-manager.io",
     "issuers.cert-manager.io",
     "clusterissuers.cert-manager.io"
@@ -63,7 +63,7 @@ Kubernetes Cluster          k8s-vectordb-sync           cluster-whisperer       
 **Delete** (immediate, POST to capabilities endpoint):
 ```json
 {
-  "deleted": [
+  "deletes": [
     "certificates.cert-manager.io"
   ]
 }
@@ -190,6 +190,7 @@ This PRD covers only the k8s-vectordb-sync side.
 | 2026-02-25 | Skip CRD update events | CRD spec changes (adding fields, changing versions) are rare. The capability inference pipeline is idempotent — periodic resync or manual trigger handles schema updates. Avoids complexity of diffing CRD specs. |
 | 2026-02-25 | Env var config over Viktor's CapabilityScanConfig CRD | Consistent with the instance-sync controller's approach. CRD-based config adds complexity (defining, generating, reconciling) that isn't needed for this feature. It can be added later if needed. |
 | 2026-02-25 | CRD GVR always discovered when capabilities pipeline enabled | The resource filter (allowlist/blocklist) controls instance pipeline discovery. CRDs are in the default exclusion list and would also be missed in allowlist mode. The watcher's `watchCRDs` flag ensures the CRD informer is always created when `CAPABILITIES_ENDPOINT` is set, regardless of filter settings. |
+| 2026-02-26 | CRD payload uses `upserts`/`deletes` (not `added`/`deleted`) | Consistent API surface — the instance sync endpoint already uses `upserts`/`deletes`. Both endpoints on the same server, consumed by the same client, should use the same field names. |
 
 ---
 
