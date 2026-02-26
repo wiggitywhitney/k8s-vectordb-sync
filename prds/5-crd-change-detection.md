@@ -82,10 +82,10 @@ The payload is intentionally minimal — just CRD names. cluster-whisperer alrea
 - [x] `REST_ENDPOINT` renamed to `INSTANCES_ENDPOINT` (breaking change, v0.1.0)
 - [x] New `CAPABILITIES_ENDPOINT` config env var (separate from `INSTANCES_ENDPOINT`)
 - [x] Helm chart updated with both renamed and new configuration options
-- [ ] All three test tiers pass (unit, integration, e2e)
-- [ ] End-to-end: install a CRD → controller detects → capabilities endpoint receives CRD name
+- [x] All three test tiers pass (unit, integration, e2e)
+- [x] End-to-end: install a CRD → controller detects → capabilities endpoint receives CRD name
 - [ ] Full-stack validation: install real operators (CloudNativePG, Redis, MongoDB) → CRDs appear in vector DB with inferred descriptions
-- [ ] README updated with new functionality using `/write-docs` skill
+- [x] README updated with new functionality using `/write-docs` skill
 
 ## Milestones
 
@@ -107,7 +107,7 @@ The payload is intentionally minimal — just CRD names. cluster-whisperer alrea
   - Unit tests for CRD debounce behavior, payload assembly, and REST client
   - Integration tests for CRD event → debounce → REST POST pipeline
 
-- [ ] **M3**: Configuration, Deployment & Documentation
+- [x] **M3**: Configuration, Deployment & Documentation
   - Helm chart updated with `CAPABILITIES_ENDPOINT` in values.yaml
   - Feature is disabled by default (empty endpoint = no CRD event forwarding)
   - E2E tests in CI: install CRD in Kind cluster → verify controller POSTs to mock capabilities endpoint
@@ -189,6 +189,7 @@ This PRD covers only the k8s-vectordb-sync side.
 | 2026-02-25 | Reuse debounce/batch pattern over custom CRD batching | Operator installs land many CRDs at once (cert-manager: 6, Prometheus: 8+). Same coalescing logic applies. Separate buffer instance keeps CRD and instance batches independent. |
 | 2026-02-25 | Skip CRD update events | CRD spec changes (adding fields, changing versions) are rare. The capability inference pipeline is idempotent — periodic resync or manual trigger handles schema updates. Avoids complexity of diffing CRD specs. |
 | 2026-02-25 | Env var config over Viktor's CapabilityScanConfig CRD | Consistent with the instance-sync controller's approach. CRD-based config adds complexity (defining, generating, reconciling) that isn't needed for this feature. It can be added later if needed. |
+| 2026-02-25 | CRD GVR always discovered when capabilities pipeline enabled | The resource filter (allowlist/blocklist) controls instance pipeline discovery. CRDs are in the default exclusion list and would also be missed in allowlist mode. The watcher's `watchCRDs` flag ensures the CRD informer is always created when `CAPABILITIES_ENDPOINT` is set, regardless of filter settings. |
 
 ---
 
@@ -198,3 +199,4 @@ This PRD covers only the k8s-vectordb-sync side.
 |------|-----------|-------|
 | 2026-02-25 | M1 complete | Renamed REST_ENDPOINT → INSTANCES_ENDPOINT across 9 files, added CAPABILITIES_ENDPOINT config, implemented CRD event detection with IsCRD() + CrdEvents channel routing, added customresourcedefinitions to default exclusions, 9 new unit tests |
 | 2026-02-25 | M2 complete | CrdDebounceBuffer with add debounce/batch and delete bypass, CrdSyncPayload type (added/deleted arrays), Payload interface on REST client for reuse across both pipelines, CRD pipeline wired in main.go gated on CAPABILITIES_ENDPOINT, 12 new unit tests, 4 integration tests |
+| 2026-02-25 | M3 complete | Mock server updated with capabilities scan endpoint, E2E tests for CRD add/delete detection against Kind cluster (6/6 tests pass), watcher fix to always discover CRDs when capabilities pipeline enabled (bypasses filter in allowlist mode), README updated with dual-pipeline architecture diagram, CRD payload format docs, and updated Helm deploy example |

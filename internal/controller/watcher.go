@@ -43,6 +43,14 @@ type CrdEvent struct {
 	CrdName string // Fully-qualified CRD name (e.g., "certificates.cert-manager.io")
 }
 
+// crdGVR is the GroupVersionResource for CustomResourceDefinitions.
+// Used to ensure CRDs are always watched when the capabilities pipeline is enabled.
+var crdGVR = schema.GroupVersionResource{
+	Group:    "apiextensions.k8s.io",
+	Version:  "v1",
+	Resource: "customresourcedefinitions",
+}
+
 // Watcher discovers API resources, creates dynamic informers, and emits
 // ResourceEvents for add/update/delete changes.
 type Watcher struct {
@@ -51,6 +59,7 @@ type Watcher struct {
 	discoveryClient discovery.DiscoveryInterface
 	filter          *filter.ResourceFilter
 	resyncInterval  time.Duration
+	watchCRDs       bool // Always watch CRDs regardless of filter (capabilities pipeline)
 
 	// Events channel for downstream consumers (debouncer/batcher)
 	Events chan ResourceEvent
@@ -89,6 +98,7 @@ func NewWatcher(log logr.Logger, restConfig *rest.Config, cfg config.Config) (*W
 		discoveryClient: discoClient,
 		filter:          f,
 		resyncInterval:  cfg.ResyncInterval,
+		watchCRDs:       cfg.CapabilitiesEndpoint != "",
 		Events:          make(chan ResourceEvent, 10000),
 		CrdEvents:       make(chan CrdEvent, 1000),
 		stopCh:          make(chan struct{}),
@@ -155,6 +165,7 @@ func (w *Watcher) discoverResources() []schema.GroupVersionResource {
 	}
 
 	var gvrs []schema.GroupVersionResource
+	hasCRDs := false
 	for _, list := range resourceLists {
 		gv, parseErr := schema.ParseGroupVersion(list.GroupVersion)
 		if parseErr != nil {
@@ -172,12 +183,23 @@ func (w *Watcher) discoverResources() []schema.GroupVersionResource {
 				continue
 			}
 
-			gvrs = append(gvrs, schema.GroupVersionResource{
+			gvr := schema.GroupVersionResource{
 				Group:    gv.Group,
 				Version:  gv.Version,
 				Resource: resource.Name,
-			})
+			}
+			gvrs = append(gvrs, gvr)
+			if gvr == crdGVR {
+				hasCRDs = true
+			}
 		}
+	}
+
+	// When the CRD capabilities pipeline is enabled, always watch CRDs
+	// regardless of filter settings (allowlist or blocklist).
+	if w.watchCRDs && !hasCRDs {
+		gvrs = append(gvrs, crdGVR)
+		w.log.Info("Added CRD watch for capabilities pipeline (bypassing filter)")
 	}
 
 	return gvrs
