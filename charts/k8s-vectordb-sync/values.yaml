@@ -27,7 +27,7 @@ config:
   # Comma-separated resource types to watch (empty = all discoverable)
   watchResourceTypes: ""
   # Comma-separated resource types to exclude
-  excludeResourceTypes: "events,leases,endpointslices,customresourcedefinitions"
+  excludeResourceTypes: "events,leases,endpointslices,componentstatuses,customresourcedefinitions"
   # Bind address for the API server (resync trigger endpoint)
   apiBindAddress: ":8082"
   # Logging verbosity

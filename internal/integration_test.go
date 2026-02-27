@@ -529,7 +529,8 @@ func TestIntegration_CrdPipeline_DeletesArriveImmediately(t *testing.T) {
 	defer cancel()
 
 	go crdDebouncer.Run(ctx, events)
-	_ = startCrdSenderLoop(ctx, restClient, crdDebouncer)
+	senderDone := startCrdSenderLoop(ctx, restClient, crdDebouncer)
+	t.Cleanup(func() { <-senderDone })
 
 	sentAt := time.Now()
 

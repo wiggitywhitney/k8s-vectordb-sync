@@ -307,7 +307,7 @@ check_prerequisites() {
   # Controller deployment with CAPABILITIES_ENDPOINT
   info "Checking controller deployment in ${CONTROLLER_NS}..."
   local cap_endpoint
-  cap_endpoint=$(kubectl get deploy -n "$CONTROLLER_NS" -o jsonpath='{.items[0].spec.template.spec.containers[0].env[?(@.name=="CAPABILITIES_ENDPOINT")].value}' 2>/dev/null || echo "")
+  cap_endpoint=$(kubectl get deploy -n "$CONTROLLER_NS" -l control-plane=controller-manager -o jsonpath='{.items[0].spec.template.spec.containers[0].env[?(@.name=="CAPABILITIES_ENDPOINT")].value}' 2>/dev/null || echo "")
   if [[ -z "$cap_endpoint" ]]; then
     fail "Controller does not have CAPABILITIES_ENDPOINT configured"
     info "Redeploy the controller with CAPABILITIES_ENDPOINT pointing to cluster-whisperer"
@@ -392,7 +392,7 @@ validate_operator() {
     local partial
     partial=$(count_capabilities_by_group "$collection_id" "$OP_API_GROUP")
     if [[ "$partial" -gt 0 ]]; then
-      record_pass "${OP_NAME}: ${partial}/${crd_count} capabilities (partial — some CRDs may lack schemas)"
+      record_fail "${OP_NAME}: ${partial}/${crd_count} capabilities (partial — missing some CRD schemas)"
       print_capabilities "$collection_id" "$OP_API_GROUP"
     else
       record_fail "${OP_NAME}: no capabilities found after ${POLL_TIMEOUT}s"
@@ -519,6 +519,16 @@ main() {
 }
 
 # Trap for cleanup on unexpected exit
-trap 'echo ""; warn "Script interrupted. Run with SKIP_CLEANUP=true to preserve state."' INT TERM
+handle_interrupt() {
+  echo ""
+  if [[ "${SKIP_CLEANUP:-}" == "true" ]]; then
+    warn "Script interrupted. SKIP_CLEANUP=true — preserving state."
+  else
+    warn "Script interrupted. Cleaning up..."
+    cleanup 2>/dev/null || true
+  fi
+  exit 1
+}
+trap 'handle_interrupt' INT TERM
 
 main "$@"

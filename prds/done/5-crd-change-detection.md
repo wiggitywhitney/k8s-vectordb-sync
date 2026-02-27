@@ -102,7 +102,7 @@ The payload is intentionally minimal — just CRD names. cluster-whisperer alrea
 - [x] **M2**: CRD Debounce, Batching & REST Client
   - CRD-specific debounce buffer that batches add events (reuses same debounce pattern)
   - CRD delete events bypass debounce (immediate forwarding)
-  - REST client for the capabilities endpoint with the CRD payload format (`added`/`deleted` arrays)
+  - REST client for the capabilities endpoint with the CRD payload format (`upserts`/`deletes` arrays)
   - New `CAPABILITIES_ENDPOINT` config env var (default: empty string = feature disabled)
   - Retry logic matching existing REST client (exponential backoff, no-retry on 4xx)
   - Unit tests for CRD debounce behavior, payload assembly, and REST client
@@ -200,6 +200,6 @@ This PRD covers only the k8s-vectordb-sync side.
 | Date | Milestone | Notes |
 |------|-----------|-------|
 | 2026-02-25 | M1 complete | Renamed REST_ENDPOINT → INSTANCES_ENDPOINT across 9 files, added CAPABILITIES_ENDPOINT config, implemented CRD event detection with IsCRD() + CrdEvents channel routing, added customresourcedefinitions to default exclusions, 9 new unit tests |
-| 2026-02-25 | M2 complete | CrdDebounceBuffer with add debounce/batch and delete bypass, CrdSyncPayload type (added/deleted arrays), Payload interface on REST client for reuse across both pipelines, CRD pipeline wired in main.go gated on CAPABILITIES_ENDPOINT, 12 new unit tests, 4 integration tests |
+| 2026-02-25 | M2 complete | CrdDebounceBuffer with add debounce/batch and delete bypass, CrdSyncPayload type (upserts/deletes arrays), Payload interface on REST client for reuse across both pipelines, CRD pipeline wired in main.go gated on CAPABILITIES_ENDPOINT, 12 new unit tests, 4 integration tests |
 | 2026-02-25 | M3 complete | Mock server updated with capabilities scan endpoint, E2E tests for CRD add/delete detection against Kind cluster (6/6 tests pass), watcher fix to always discover CRDs when capabilities pipeline enabled (bypasses filter in allowlist mode), README updated with dual-pipeline architecture diagram, CRD payload format docs, and updated Helm deploy example |
 | 2026-02-26 | M4 complete | Full-stack validation script (`test/fullstack/validate.sh`) with `make test-fullstack` target. Validated against Spider Rainbows Kind cluster with real cluster-whisperer + ChromaDB: CloudNativePG (10/10 CRDs), Redis Operator (4/4 CRDs), MongoDB Community (1/1 CRD) all produced capabilities with LLM-inferred descriptions. Uninstall verification confirmed capability removal from ChromaDB. Also wired capabilities pipeline into cluster-whisperer serve command (separate repo commit). |

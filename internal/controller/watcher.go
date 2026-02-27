@@ -286,15 +286,26 @@ func (w *Watcher) emit(event ResourceEvent) {
 	}
 }
 
-// emitCrd sends a CrdEvent to the CRD events channel without blocking.
-// If the channel is full or the watcher has been stopped, the event is dropped.
+// emitCrd sends a CrdEvent to the CRD events channel.
+// Delete events block until delivered (stale capabilities are worse than backpressure).
+// Add events use non-blocking send and are dropped if the channel is full.
 func (w *Watcher) emitCrd(event CrdEvent) {
+	if event.Type == EventDelete {
+		// Deletes must be delivered — block until channel accepts or watcher stops
+		select {
+		case <-w.stopCh:
+			return
+		case w.CrdEvents <- event:
+		}
+		return
+	}
+	// Adds are non-blocking — safe to drop since they'll be rebatched
 	select {
 	case <-w.stopCh:
 		return
 	case w.CrdEvents <- event:
 	default:
-		w.log.Info("CRD event channel full, dropping event",
+		w.log.Info("CRD event channel full, dropping add event",
 			"type", event.Type, "crdName", event.CrdName)
 	}
 }
@@ -352,7 +363,13 @@ func (w *Watcher) TriggerResync(ctx context.Context) (int, error) {
 		}
 
 		for i := range list.Items {
-			instance := metadata.Extract(&list.Items[i])
+			obj := &list.Items[i]
+			if IsCRD(obj) {
+				w.emitCrd(CrdEvent{Type: EventAdd, CrdName: obj.GetName()})
+				total++
+				continue
+			}
+			instance := metadata.Extract(obj)
 			w.emit(ResourceEvent{Type: EventAdd, Instance: instance})
 			total++
 		}

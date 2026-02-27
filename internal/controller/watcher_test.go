@@ -392,13 +392,17 @@ func TestCRDNameExtraction(t *testing.T) {
 	}
 }
 
-func TestEventRouting_CRDAdd_GoesToCrdEvents(t *testing.T) {
-	w := &Watcher{
+func newCRDTestWatcher() *Watcher {
+	return &Watcher{
 		log:       logr.Discard(),
 		Events:    make(chan ResourceEvent, 10),
 		CrdEvents: make(chan CrdEvent, 10),
 		stopCh:    make(chan struct{}),
 	}
+}
+
+func TestEventRouting_CRDAdd_GoesToCrdEvents(t *testing.T) {
+	w := newCRDTestWatcher()
 
 	handler := w.makeEventHandler()
 	crd := makeCRDObj(testCrdName)
@@ -427,12 +431,7 @@ func TestEventRouting_CRDAdd_GoesToCrdEvents(t *testing.T) {
 }
 
 func TestEventRouting_CRDDelete_GoesToCrdEvents(t *testing.T) {
-	w := &Watcher{
-		log:       logr.Discard(),
-		Events:    make(chan ResourceEvent, 10),
-		CrdEvents: make(chan CrdEvent, 10),
-		stopCh:    make(chan struct{}),
-	}
+	w := newCRDTestWatcher()
 
 	handler := w.makeEventHandler()
 	crd := makeCRDObj("issuers.cert-manager.io")
@@ -458,12 +457,7 @@ func TestEventRouting_CRDDelete_GoesToCrdEvents(t *testing.T) {
 }
 
 func TestEventRouting_CRDUpdate_IsIgnored(t *testing.T) {
-	w := &Watcher{
-		log:       logr.Discard(),
-		Events:    make(chan ResourceEvent, 10),
-		CrdEvents: make(chan CrdEvent, 10),
-		stopCh:    make(chan struct{}),
-	}
+	w := newCRDTestWatcher()
 
 	handler := w.makeEventHandler()
 	oldCrd := makeCRDObj(testCrdName)
@@ -488,12 +482,7 @@ func TestEventRouting_CRDUpdate_IsIgnored(t *testing.T) {
 }
 
 func TestEventRouting_RegularResource_GoesToEvents(t *testing.T) {
-	w := &Watcher{
-		log:       logr.Discard(),
-		Events:    make(chan ResourceEvent, 10),
-		CrdEvents: make(chan CrdEvent, 10),
-		stopCh:    make(chan struct{}),
-	}
+	w := newCRDTestWatcher()
 
 	handler := w.makeEventHandler()
 	dep := makeUnstructured("apps/v1", "Deployment", "default", "nginx", map[string]string{"app": "nginx"})
@@ -518,7 +507,7 @@ func TestEventRouting_RegularResource_GoesToEvents(t *testing.T) {
 	}
 }
 
-func TestEmitCrd_NonBlocking(t *testing.T) {
+func TestEmitCrd_AddNonBlocking(t *testing.T) {
 	w := &Watcher{
 		CrdEvents: make(chan CrdEvent, 1),
 		stopCh:    make(chan struct{}),
@@ -546,6 +535,50 @@ func TestEmitCrd_NonBlocking(t *testing.T) {
 	received := <-w.CrdEvents
 	if received.CrdName != "test1.example.io" {
 		t.Errorf("Expected test1.example.io, got %s", received.CrdName)
+	}
+}
+
+func TestEmitCrd_DeleteBlocks(t *testing.T) {
+	w := &Watcher{
+		CrdEvents: make(chan CrdEvent, 1),
+		stopCh:    make(chan struct{}),
+		log:       logr.Discard(),
+	}
+
+	// Fill the channel
+	w.emitCrd(CrdEvent{Type: EventAdd, CrdName: "filler.example.io"})
+
+	// Delete should block until channel has space
+	done := make(chan bool, 1)
+	go func() {
+		w.emitCrd(CrdEvent{Type: EventDelete, CrdName: "delete.example.io"})
+		done <- true
+	}()
+
+	// Should NOT complete yet (channel full, delete blocks)
+	select {
+	case <-done:
+		t.Fatal("emitCrd() for delete should block when channel is full")
+	case <-time.After(50 * time.Millisecond):
+		// Good — blocked as expected
+	}
+
+	// Drain the filler to unblock
+	<-w.CrdEvents
+
+	// Now the delete should complete
+	select {
+	case <-done:
+	case <-time.After(1 * time.Second):
+		t.Fatal("emitCrd() for delete did not unblock after channel drained")
+	}
+
+	received := <-w.CrdEvents
+	if received.CrdName != "delete.example.io" {
+		t.Errorf("Expected delete.example.io, got %s", received.CrdName)
+	}
+	if received.Type != EventDelete {
+		t.Errorf("Expected DELETE, got %s", received.Type)
 	}
 }
 

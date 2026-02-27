@@ -248,7 +248,7 @@ func (d *CrdDebounceBuffer) emitPayload(payload CrdSyncPayload) {
 	select {
 	case d.Payloads <- payload:
 	default:
-		d.log.Info("CRD payload channel full, dropping batch",
+		d.log.Error(nil, "CRD payload channel full, dropping batch",
 			"upserts", len(payload.Upserts),
 			"deletes", len(payload.Deletes),
 		)

@@ -39,8 +39,20 @@ func TestLoad_Defaults(t *testing.T) {
 	if len(cfg.WatchResourceTypes) != 0 {
 		t.Errorf("WatchResourceTypes = %v, want empty", cfg.WatchResourceTypes)
 	}
-	if len(cfg.ExcludeResourceTypes) != 4 {
-		t.Errorf("ExcludeResourceTypes = %v, want 4 defaults", cfg.ExcludeResourceTypes)
+	expectedExclusions := map[string]bool{
+		"events":                    true,
+		"leases":                    true,
+		"endpointslices":            true,
+		"componentstatuses":         true,
+		"customresourcedefinitions": true,
+	}
+	if len(cfg.ExcludeResourceTypes) != len(expectedExclusions) {
+		t.Fatalf("ExcludeResourceTypes = %v, want %d defaults", cfg.ExcludeResourceTypes, len(expectedExclusions))
+	}
+	for _, rt := range cfg.ExcludeResourceTypes {
+		if !expectedExclusions[rt] {
+			t.Errorf("Unexpected default excluded resource type: %q", rt)
+		}
 	}
 	if cfg.LogLevel != "info" {
 		t.Errorf("LogLevel = %q, want %q", cfg.LogLevel, "info")

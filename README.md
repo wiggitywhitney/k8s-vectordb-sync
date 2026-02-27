@@ -78,6 +78,8 @@ The controller starts watching resources immediately after the pod becomes ready
 
 All configuration is through environment variables. When deploying with Helm, these are set via `values.yaml` under `config.*`.
 
+> **Migration note**: `REST_ENDPOINT` was renamed to `INSTANCES_ENDPOINT` in v0.1.0. If upgrading from an earlier version, update your Helm values or environment variables to use `INSTANCES_ENDPOINT` instead. There is no backward-compatibility fallback.
+
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `INSTANCES_ENDPOINT` | `http://localhost:3000/api/v1/instances/sync` | cluster-whisperer instance sync URL |
@@ -87,7 +89,7 @@ All configuration is through environment variables. When deploying with Helm, th
 | `BATCH_MAX_SIZE` | `50` | Maximum number of upserts in a single payload. When this limit is reached, the batch is sent immediately. |
 | `RESYNC_INTERVAL_MIN` | `1440` | How often (in minutes) the controller performs a full resync of all resources. The default is 24 hours. |
 | `WATCH_RESOURCE_TYPES` | *(empty = all)* | Comma-separated list of resource types to watch. When empty, the controller watches all discoverable types. |
-| `EXCLUDE_RESOURCE_TYPES` | `events,leases,endpointslices,customresourcedefinitions` | Comma-separated list of resource types to skip. These are excluded because they change frequently and have low value for semantic search. CRDs are excluded from the instance pipeline because they are type definitions, not running workloads — CRD changes are routed to the capabilities pipeline instead. |
+| `EXCLUDE_RESOURCE_TYPES` | `events,leases,endpointslices,componentstatuses,customresourcedefinitions` | Comma-separated list of resource types to skip. These are excluded because they change frequently and have low value for semantic search. CRDs are excluded from the instance pipeline because they are type definitions, not running workloads — CRD changes are routed to the capabilities pipeline instead. |
 | `API_BIND_ADDRESS` | `:8082` | Bind address for the resync trigger API. |
 | `LOG_LEVEL` | `info` | Logging verbosity. |
 
