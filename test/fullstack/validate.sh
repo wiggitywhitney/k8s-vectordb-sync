@@ -124,8 +124,10 @@ for i, rid in enumerate(ids):
 # Get CRD names for a given API group from the cluster.
 get_crds_for_group() {
   local api_group="$1"
+  # Escape dots for literal matching (api_group values contain dots like postgresql.cnpg.io)
+  local escaped_api_group="${api_group//./\\.}"
   kubectl get crds -o jsonpath="{range .items[*]}{.metadata.name}{'\n'}{end}" | \
-    grep "\.${api_group}$" || true
+    grep -E "\.${escaped_api_group}$" || true
 }
 
 # Wait for at least one CRD to exist for the given API group.
@@ -314,7 +316,9 @@ check_prerequisites() {
   fi
   info "Found controller deployment: ${controller_deploy}"
   local cap_endpoint
-  cap_endpoint=$(kubectl get deploy -n "$CONTROLLER_NS" "$controller_deploy" -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="CAPABILITIES_ENDPOINT")].value}' 2>/dev/null || echo "")
+  cap_endpoint=$(kubectl get deploy -n "$CONTROLLER_NS" "$controller_deploy" \
+    -o jsonpath='{range .spec.template.spec.containers[*].env[?(@.name=="CAPABILITIES_ENDPOINT")]}{.value}{"\n"}{end}' \
+    2>/dev/null | sed '/^$/d' | head -n1)
   if [[ -z "$cap_endpoint" ]]; then
     fail "Controller does not have CAPABILITIES_ENDPOINT configured"
     info "Redeploy the controller with CAPABILITIES_ENDPOINT pointing to cluster-whisperer"
