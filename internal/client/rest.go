@@ -8,6 +8,7 @@ import (
 	"math"
 	"math/rand/v2"
 	"net/http"
+	"reflect"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -79,7 +80,7 @@ func New(log logr.Logger, endpoint string, opts ...Option) *RESTClient {
 // Send POSTs a payload to the configured endpoint with retry logic.
 // Empty payloads are skipped (determined by the Payload.IsEmpty() method).
 func (c *RESTClient) Send(ctx context.Context, payload Payload) error {
-	if payload == nil || payload.IsEmpty() {
+	if payload == nil || isNilPayload(payload) || payload.IsEmpty() {
 		return nil
 	}
 
@@ -172,6 +173,13 @@ type serverError struct {
 
 func (e *serverError) Error() string {
 	return fmt.Sprintf("server error: HTTP %d", e.statusCode)
+}
+
+// isNilPayload detects typed nil pointers passed through the Payload interface.
+// A plain nil check (payload == nil) misses these since the interface wrapper is non-nil.
+func isNilPayload(p Payload) bool {
+	v := reflect.ValueOf(p)
+	return v.Kind() == reflect.Ptr && v.IsNil()
 }
 
 // isClientError checks if the error is a non-retryable client error (4xx).

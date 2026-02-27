@@ -323,6 +323,28 @@ func TestRESTClient_SkipsNilPayload(t *testing.T) {
 	}
 }
 
+func TestRESTClient_SkipsTypedNilPayload(t *testing.T) {
+	var called atomic.Bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		called.Store(true)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	client := New(logr.Discard(), server.URL, WithTimeout(5*time.Second))
+
+	// Typed nil pointer — interface wrapper is non-nil but the concrete pointer is nil
+	var p *controller.SyncPayload
+	err := client.Send(context.Background(), p)
+	if err != nil {
+		t.Fatalf("Send should not error on typed nil payload: %v", err)
+	}
+
+	if called.Load() {
+		t.Error("Should not have made HTTP request for typed nil payload")
+	}
+}
+
 func TestRESTClient_SkipsEmptyCrdPayload(t *testing.T) {
 	var called atomic.Bool
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
