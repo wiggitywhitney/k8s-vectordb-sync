@@ -487,9 +487,12 @@ main() {
   fi
   info "Capabilities collection ID: ${collection_id}"
 
-  # Record baseline
+  # Record baseline using the documented /get endpoint
   local baseline
-  baseline=$(curl -sf -X POST "${CHROMA_API}/collections/${collection_id}/count" || echo "0")
+  baseline=$(curl -sf -X POST "${CHROMA_API}/collections/${collection_id}/get" \
+    -H "Content-Type: application/json" \
+    -d '{"include": []}' | \
+    python3 -c "import json, sys; d = json.load(sys.stdin); print(len(d.get('ids', [])))" 2>/dev/null) || baseline="0"
   info "Baseline capability count: ${baseline}"
 
   # Install and verify each operator
