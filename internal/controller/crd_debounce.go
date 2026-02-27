@@ -38,6 +38,7 @@ type CrdDebounceBuffer struct {
 	// pending holds debounced CRD add events keyed by CRD name.
 	pending   map[string]pendingCrdChange
 	pendingMu sync.Mutex
+	nextGen   uint64 // monotonic counter for timer generation; prevents stale callbacks after delete+re-add
 
 	// Payloads channel for downstream consumers (REST client)
 	Payloads chan CrdSyncPayload
@@ -121,15 +122,17 @@ func (d *CrdDebounceBuffer) handleEvent(event CrdEvent) {
 	d.pendingMu.Lock()
 	defer d.pendingMu.Unlock()
 
-	var nextGen uint64
 	if existing, ok := d.pending[event.CrdName]; ok {
 		// Reset the existing timer (last-state-wins / dedup)
 		existing.timer.Stop()
-		nextGen = existing.gen + 1
 	}
 
+	// Use buffer-scoped monotonic counter so stale timer callbacks from a
+	// previous add (before a delete removed the entry) can never match a
+	// freshly re-added entry that happens to reuse the same CRD name.
+	d.nextGen++
 	crdName := event.CrdName
-	capturedGen := nextGen
+	capturedGen := d.nextGen
 	d.pending[crdName] = pendingCrdChange{
 		crdName: crdName,
 		gen:     capturedGen,

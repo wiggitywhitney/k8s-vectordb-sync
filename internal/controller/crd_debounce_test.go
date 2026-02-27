@@ -264,6 +264,59 @@ func TestCrdDebounce_ChannelCloseFlushesAllPending(t *testing.T) {
 	}
 }
 
+func TestCrdDebounce_DeleteThenReaddUsesNewGeneration(t *testing.T) {
+	// Regression test: after add → delete → re-add, stale timer from the
+	// first add must not mark the re-added entry as ready prematurely.
+	// The monotonic buffer-scoped generation counter prevents this.
+	cfg := crdTestConfig(100, 5000, 100) // 100ms debounce, long flush
+	db := NewCrdDebounceBuffer(logr.Discard(), cfg)
+
+	events := make(chan CrdEvent, 10)
+	go db.Run(t.Context(), events)
+
+	// Step 1: Add CRD (starts timer with gen=1)
+	events <- CrdEvent{Type: EventAdd, CrdName: testCrdName}
+	time.Sleep(10 * time.Millisecond) // ensure processed
+
+	// Step 2: Delete CRD (removes entry, cancels timer, but timer goroutine may still fire)
+	events <- CrdEvent{Type: EventDelete, CrdName: testCrdName}
+
+	// Drain the immediate delete payload
+	select {
+	case payload := <-db.Payloads:
+		if len(payload.Deletes) != 1 {
+			t.Fatalf("Expected 1 delete, got %d", len(payload.Deletes))
+		}
+	case <-time.After(1 * time.Second):
+		t.Fatal("Delete not received")
+	}
+
+	// Step 3: Re-add same CRD (gets gen=2, different from first add's gen=1)
+	events <- CrdEvent{Type: EventAdd, CrdName: testCrdName}
+	time.Sleep(10 * time.Millisecond) // ensure processed
+
+	// At this point the pending entry should NOT be ready yet (100ms debounce hasn't elapsed)
+	db.pendingMu.Lock()
+	if p, ok := db.pending[testCrdName]; ok && p.ready {
+		db.pendingMu.Unlock()
+		t.Fatal("Re-added CRD should not be ready before its own debounce timer fires")
+	}
+	db.pendingMu.Unlock()
+
+	// Wait for the new debounce timer to fire, then close to flush
+	time.Sleep(150 * time.Millisecond)
+	close(events)
+
+	// Collect adds — should get exactly 1 upsert for the re-added CRD
+	var totalAdded int
+	for payload := range db.Payloads {
+		totalAdded += len(payload.Upserts)
+	}
+	if totalAdded != 1 {
+		t.Errorf("Expected 1 add after re-add, got %d", totalAdded)
+	}
+}
+
 func TestCrdDebounce_SeparateAddAndDeletePayloads(t *testing.T) {
 	cfg := crdTestConfig(10, 200, 100)
 	db := NewCrdDebounceBuffer(logr.Discard(), cfg)

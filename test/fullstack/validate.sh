@@ -306,8 +306,15 @@ check_prerequisites() {
 
   # Controller deployment with CAPABILITIES_ENDPOINT
   info "Checking controller deployment in ${CONTROLLER_NS}..."
+  local controller_deploy
+  controller_deploy=$(kubectl get deploy -n "$CONTROLLER_NS" -l control-plane=controller-manager -o jsonpath='{.items[*].metadata.name}' 2>/dev/null | awk '{print $1}')
+  if [[ -z "$controller_deploy" ]]; then
+    fail "No controller deployment found with label control-plane=controller-manager in ${CONTROLLER_NS}"
+    exit 1
+  fi
+  info "Found controller deployment: ${controller_deploy}"
   local cap_endpoint
-  cap_endpoint=$(kubectl get deploy -n "$CONTROLLER_NS" -l control-plane=controller-manager -o jsonpath='{.items[0].spec.template.spec.containers[0].env[?(@.name=="CAPABILITIES_ENDPOINT")].value}' 2>/dev/null || echo "")
+  cap_endpoint=$(kubectl get deploy -n "$CONTROLLER_NS" "$controller_deploy" -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="CAPABILITIES_ENDPOINT")].value}' 2>/dev/null || echo "")
   if [[ -z "$cap_endpoint" ]]; then
     fail "Controller does not have CAPABILITIES_ENDPOINT configured"
     info "Redeploy the controller with CAPABILITIES_ENDPOINT pointing to cluster-whisperer"
