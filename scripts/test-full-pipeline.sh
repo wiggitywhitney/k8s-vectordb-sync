@@ -30,7 +30,7 @@ TEST_NAMESPACE="pipeline-test"
 TEST_DEPLOYMENT="nginx-pipeline-test"
 
 # Debounce and flush set low for fast feedback
-export REST_ENDPOINT="${CW_URL}/api/v1/instances/sync"
+export INSTANCES_ENDPOINT="${CW_URL}/api/v1/instances/sync"
 export DEBOUNCE_WINDOW_MS=2000
 export BATCH_FLUSH_INTERVAL_MS=2000
 export WATCH_RESOURCE_TYPES=deployments

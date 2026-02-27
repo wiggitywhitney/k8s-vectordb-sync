@@ -265,3 +265,103 @@ func TestRESTClient_RetriesOnTimeout(t *testing.T) {
 		t.Errorf("Expected 2 attempts, got %d", got)
 	}
 }
+
+func TestRESTClient_SendsCrdSyncPayload(t *testing.T) {
+	var received controller.CrdSyncPayload
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("Failed to read body: %v", err)
+		}
+		if err := json.Unmarshal(body, &received); err != nil {
+			t.Fatalf("Failed to unmarshal body: %v", err)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	client := New(logr.Discard(), server.URL, WithTimeout(5*time.Second))
+
+	payload := controller.CrdSyncPayload{
+		Upserts: []string{"certificates.cert-manager.io", "issuers.cert-manager.io"},
+		Deletes: []string{"challenges.cert-manager.io"},
+	}
+
+	err := client.Send(context.Background(), payload)
+	if err != nil {
+		t.Fatalf("Send failed: %v", err)
+	}
+
+	if len(received.Upserts) != 2 {
+		t.Fatalf("Expected 2 upserts, got %d", len(received.Upserts))
+	}
+	if received.Upserts[0] != "certificates.cert-manager.io" {
+		t.Errorf("Upserts[0] = %q, want certificates.cert-manager.io", received.Upserts[0])
+	}
+	if len(received.Deletes) != 1 || received.Deletes[0] != "challenges.cert-manager.io" {
+		t.Errorf("Deletes = %v, want [challenges.cert-manager.io]", received.Deletes)
+	}
+}
+
+func TestRESTClient_SkipsNilPayload(t *testing.T) {
+	var called atomic.Bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		called.Store(true)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	client := New(logr.Discard(), server.URL, WithTimeout(5*time.Second))
+
+	err := client.Send(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("Send should not error on nil payload: %v", err)
+	}
+
+	if called.Load() {
+		t.Error("Should not have made HTTP request for nil payload")
+	}
+}
+
+func TestRESTClient_SkipsTypedNilPayload(t *testing.T) {
+	var called atomic.Bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		called.Store(true)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	client := New(logr.Discard(), server.URL, WithTimeout(5*time.Second))
+
+	// Typed nil pointer — interface wrapper is non-nil but the concrete pointer is nil
+	var p *controller.SyncPayload
+	err := client.Send(context.Background(), p)
+	if err != nil {
+		t.Fatalf("Send should not error on typed nil payload: %v", err)
+	}
+
+	if called.Load() {
+		t.Error("Should not have made HTTP request for typed nil payload")
+	}
+}
+
+func TestRESTClient_SkipsEmptyCrdPayload(t *testing.T) {
+	var called atomic.Bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		called.Store(true)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	client := New(logr.Discard(), server.URL, WithTimeout(5*time.Second))
+
+	// Empty CRD payload — no added or deleted
+	err := client.Send(context.Background(), controller.CrdSyncPayload{})
+	if err != nil {
+		t.Fatalf("Send should not error on empty CRD payload: %v", err)
+	}
+
+	if called.Load() {
+		t.Error("Should not have made HTTP request for empty CRD payload")
+	}
+}

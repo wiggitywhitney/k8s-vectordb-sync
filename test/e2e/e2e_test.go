@@ -53,12 +53,21 @@ const (
 	mockServerPort     = "38080"
 	mockServerLocalURL = "http://localhost:38080"
 	testNamespace      = "e2e-pipeline-test"
+
+	crdMockServerPort     = "38081"
+	crdMockServerLocalURL = "http://localhost:38081"
 )
 
 // syncPayload mirrors the controller's SyncPayload for deserializing mock server responses.
 type syncPayload struct {
 	Upserts []resourceInstance `json:"upserts"`
 	Deletes []string           `json:"deletes"`
+}
+
+// crdSyncPayload mirrors the controller's CrdSyncPayload for deserializing mock server responses.
+type crdSyncPayload struct {
+	Upserts []string `json:"upserts"`
+	Deletes []string `json:"deletes"`
 }
 
 // resourceInstance mirrors the controller's ResourceInstance for deserializing mock server responses.
@@ -74,8 +83,12 @@ type resourceInstance struct {
 	CreatedAt   string            `json:"createdAt"`
 }
 
+// controllerPodName is set by verifyControllerRunning and referenced by
+// AfterAll cleanup to dump logs on failure. Package-level so the
+// package-level verifyControllerRunning helper can assign it.
+var controllerPodName string
+
 var _ = Describe("Manager", Ordered, func() {
-	var controllerPodName string
 
 	// Before running the tests, set up the environment by creating the namespace,
 	// enforce the restricted security policy to the namespace, installing CRDs,
@@ -121,7 +134,8 @@ var _ = Describe("Manager", Ordered, func() {
 		cmd = exec.Command("kubectl", "set", "env",
 			"deployment/k8s-vectordb-sync-controller-manager",
 			"-n", namespace,
-			"REST_ENDPOINT=http://mock-server.default.svc:8080/api/v1/instances/sync",
+			"INSTANCES_ENDPOINT=http://mock-server.default.svc:8080/api/v1/instances/sync",
+			"CAPABILITIES_ENDPOINT=http://mock-server.default.svc:8080/api/v1/capabilities/scan",
 			"DEBOUNCE_WINDOW_MS=2000",
 			"BATCH_FLUSH_INTERVAL_MS=2000",
 			"WATCH_RESOURCE_TYPES=deployments",
@@ -347,30 +361,7 @@ var _ = Describe("Manager", Ordered, func() {
 
 		BeforeAll(func() {
 			By("refreshing controller pod name after env var restart")
-			verifyControllerUp := func(g Gomega) {
-				cmd := exec.Command("kubectl", "get",
-					"pods", "-l", "control-plane=controller-manager",
-					"-o", "go-template={{ range .items }}"+
-						"{{ if not .metadata.deletionTimestamp }}"+
-						"{{ .metadata.name }}"+
-						"{{ \"\\n\" }}{{ end }}{{ end }}",
-					"-n", namespace,
-				)
-				podOutput, err := utils.Run(cmd)
-				g.Expect(err).NotTo(HaveOccurred())
-				podNames := utils.GetNonEmptyLines(podOutput)
-				g.Expect(podNames).To(HaveLen(1), "expected 1 controller pod running")
-				controllerPodName = podNames[0]
-
-				cmd = exec.Command("kubectl", "get",
-					"pods", controllerPodName, "-o", "jsonpath={.status.phase}",
-					"-n", namespace,
-				)
-				output, err := utils.Run(cmd)
-				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(output).To(Equal("Running"))
-			}
-			Eventually(verifyControllerUp, 3*time.Minute, time.Second).Should(Succeed())
+			Eventually(verifyControllerRunning, 3*time.Minute, time.Second).Should(Succeed())
 
 			By("starting port-forward to mock server")
 			portForwardCmd = exec.Command("kubectl", "port-forward",
@@ -464,6 +455,96 @@ var _ = Describe("Manager", Ordered, func() {
 			}, 60*time.Second, 2*time.Second).Should(Succeed())
 		})
 	})
+
+	Context("CRD Pipeline", Ordered, func() {
+		var portForwardCmd *exec.Cmd
+
+		BeforeAll(func() {
+			By("refreshing controller pod name for CRD pipeline tests")
+			Eventually(verifyControllerRunning, 3*time.Minute, time.Second).Should(Succeed())
+
+			By("starting port-forward to mock server for CRD tests")
+			portForwardCmd = exec.Command("kubectl", "port-forward",
+				"svc/mock-server", fmt.Sprintf("%s:8080", crdMockServerPort),
+				"-n", "default")
+			dir, _ := utils.GetProjectDir()
+			portForwardCmd.Dir = dir
+			err := portForwardCmd.Start()
+			Expect(err).NotTo(HaveOccurred(), "Failed to start port-forward to mock server")
+
+			By("waiting for port-forward to be ready")
+			Eventually(func() error {
+				resp, err := http.Get(crdMockServerLocalURL + "/healthz")
+				if err != nil {
+					return err
+				}
+				resp.Body.Close()
+				return nil
+			}, 30*time.Second, time.Second).Should(Succeed())
+
+			By("waiting for controller to settle after startup")
+			time.Sleep(10 * time.Second)
+
+			By("clearing CRD payloads from initial sync")
+			clearCrdMockPayloads()
+		})
+
+		AfterAll(func() {
+			if portForwardCmd != nil && portForwardCmd.Process != nil {
+				_ = portForwardCmd.Process.Kill()
+				_ = portForwardCmd.Wait()
+			}
+
+			By("cleaning up test CRD")
+			cmd := exec.Command("kubectl", "delete", "-f", "test/e2e/testdata/test-crd.yaml", "--ignore-not-found")
+			_, _ = utils.Run(cmd)
+		})
+
+		It("should detect a new CRD and send an add payload", func() {
+			By("installing a test CRD")
+			cmd := exec.Command("kubectl", "apply", "-f", "test/e2e/testdata/test-crd.yaml")
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to install test CRD")
+
+			By("waiting for the controller to detect and sync the CRD add event")
+			Eventually(func(g Gomega) {
+				payloads := getCrdMockPayloads()
+				found := false
+				for _, p := range payloads {
+					for _, name := range p.Upserts {
+						if name == "widgets.e2etest.example.com" {
+							found = true
+						}
+					}
+				}
+				g.Expect(found).To(BeTrue(), "expected CRD add payload for widgets.e2etest.example.com")
+			}, 60*time.Second, 2*time.Second).Should(Succeed())
+		})
+
+		It("should detect a deleted CRD and send a delete payload", func() {
+			By("clearing CRD payloads")
+			clearCrdMockPayloads()
+
+			By("deleting the test CRD")
+			cmd := exec.Command("kubectl", "delete", "-f", "test/e2e/testdata/test-crd.yaml", "--wait=false")
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to delete test CRD")
+
+			By("waiting for the controller to detect and sync the CRD delete event")
+			Eventually(func(g Gomega) {
+				payloads := getCrdMockPayloads()
+				found := false
+				for _, p := range payloads {
+					for _, name := range p.Deletes {
+						if name == "widgets.e2etest.example.com" {
+							found = true
+						}
+					}
+				}
+				g.Expect(found).To(BeTrue(), "expected CRD delete payload for widgets.e2etest.example.com")
+			}, 60*time.Second, 2*time.Second).Should(Succeed())
+		})
+	})
 })
 
 // serviceAccountToken returns a token for the specified service account in the given namespace.
@@ -526,6 +607,32 @@ type tokenRequest struct {
 // to prevent CI hangs if the port-forward breaks.
 var mockHTTPClient = &http.Client{Timeout: 5 * time.Second}
 
+// verifyControllerRunning waits for exactly one controller pod to be running
+// and updates controllerPodName. Used in both Pipeline and CRD Pipeline contexts.
+func verifyControllerRunning(g Gomega) {
+	cmd := exec.Command("kubectl", "get",
+		"pods", "-l", "control-plane=controller-manager",
+		"-o", "go-template={{ range .items }}"+
+			"{{ if not .metadata.deletionTimestamp }}"+
+			"{{ .metadata.name }}"+
+			"{{ \"\\n\" }}{{ end }}{{ end }}",
+		"-n", namespace,
+	)
+	podOutput, err := utils.Run(cmd)
+	g.Expect(err).NotTo(HaveOccurred())
+	podNames := utils.GetNonEmptyLines(podOutput)
+	g.Expect(podNames).To(HaveLen(1), "expected 1 controller pod running")
+	controllerPodName = podNames[0]
+
+	cmd = exec.Command("kubectl", "get",
+		"pods", controllerPodName, "-o", "jsonpath={.status.phase}",
+		"-n", namespace,
+	)
+	output, err := utils.Run(cmd)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(output).To(Equal("Running"))
+}
+
 // getMockPayloads retrieves all recorded payloads from the mock server via port-forward.
 func getMockPayloads() []syncPayload {
 	resp, err := mockHTTPClient.Get(mockServerLocalURL + "/payloads")
@@ -559,6 +666,44 @@ func clearMockPayloads() {
 	resp, err := mockHTTPClient.Do(req)
 	if err != nil {
 		_, _ = fmt.Fprintf(GinkgoWriter, "Failed to clear payloads: %v\n", err)
+		return
+	}
+	resp.Body.Close()
+}
+
+// getCrdMockPayloads retrieves all recorded CRD payloads from the mock server via port-forward.
+func getCrdMockPayloads() []crdSyncPayload {
+	resp, err := mockHTTPClient.Get(crdMockServerLocalURL + "/crd-payloads")
+	if err != nil {
+		_, _ = fmt.Fprintf(GinkgoWriter, "Failed to get CRD payloads: %v\n", err)
+		return nil
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		_, _ = fmt.Fprintf(GinkgoWriter, "Failed to read CRD payloads response: %v\n", err)
+		return nil
+	}
+
+	var payloads []crdSyncPayload
+	if err := json.Unmarshal(body, &payloads); err != nil {
+		_, _ = fmt.Fprintf(GinkgoWriter, "Failed to parse CRD payloads: %v (body: %s)\n", err, string(body))
+		return nil
+	}
+	return payloads
+}
+
+// clearCrdMockPayloads clears all recorded CRD payloads from the mock server.
+func clearCrdMockPayloads() {
+	req, err := http.NewRequest(http.MethodDelete, crdMockServerLocalURL+"/crd-payloads", nil)
+	if err != nil {
+		_, _ = fmt.Fprintf(GinkgoWriter, "Failed to create CRD clear request: %v\n", err)
+		return
+	}
+	resp, err := mockHTTPClient.Do(req)
+	if err != nil {
+		_, _ = fmt.Fprintf(GinkgoWriter, "Failed to clear CRD payloads: %v\n", err)
 		return
 	}
 	resp.Body.Close()

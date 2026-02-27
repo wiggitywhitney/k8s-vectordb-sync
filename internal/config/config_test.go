@@ -8,7 +8,8 @@ import (
 func TestLoad_Defaults(t *testing.T) {
 	// Clear any env vars that might be set
 	for _, key := range []string{
-		"REST_ENDPOINT", "DEBOUNCE_WINDOW_MS", "BATCH_FLUSH_INTERVAL_MS",
+		"INSTANCES_ENDPOINT", "CAPABILITIES_ENDPOINT",
+		"DEBOUNCE_WINDOW_MS", "BATCH_FLUSH_INTERVAL_MS",
 		"BATCH_MAX_SIZE", "RESYNC_INTERVAL_MIN", "WATCH_RESOURCE_TYPES",
 		"EXCLUDE_RESOURCE_TYPES", "LOG_LEVEL",
 	} {
@@ -17,8 +18,11 @@ func TestLoad_Defaults(t *testing.T) {
 
 	cfg := Load()
 
-	if cfg.RESTEndpoint != "http://localhost:3000/api/v1/instances/sync" {
-		t.Errorf("RESTEndpoint = %q, want default", cfg.RESTEndpoint)
+	if cfg.InstancesEndpoint != "http://localhost:3000/api/v1/instances/sync" {
+		t.Errorf("InstancesEndpoint = %q, want default", cfg.InstancesEndpoint)
+	}
+	if cfg.CapabilitiesEndpoint != "" {
+		t.Errorf("CapabilitiesEndpoint = %q, want empty (disabled by default)", cfg.CapabilitiesEndpoint)
 	}
 	if cfg.DebounceWindow != 10*time.Second {
 		t.Errorf("DebounceWindow = %v, want 10s", cfg.DebounceWindow)
@@ -35,8 +39,27 @@ func TestLoad_Defaults(t *testing.T) {
 	if len(cfg.WatchResourceTypes) != 0 {
 		t.Errorf("WatchResourceTypes = %v, want empty", cfg.WatchResourceTypes)
 	}
-	if len(cfg.ExcludeResourceTypes) != 3 {
-		t.Errorf("ExcludeResourceTypes = %v, want 3 defaults", cfg.ExcludeResourceTypes)
+	expectedExclusions := map[string]bool{
+		"events":                    true,
+		"leases":                    true,
+		"endpointslices":            true,
+		"componentstatuses":         true,
+		"customresourcedefinitions": true,
+	}
+	seen := make(map[string]bool)
+	for _, rt := range cfg.ExcludeResourceTypes {
+		if seen[rt] {
+			t.Errorf("Duplicate default excluded resource type: %q", rt)
+		}
+		seen[rt] = true
+		if !expectedExclusions[rt] {
+			t.Errorf("Unexpected default excluded resource type: %q", rt)
+		}
+	}
+	for expected := range expectedExclusions {
+		if !seen[expected] {
+			t.Errorf("Missing expected default excluded resource type: %q", expected)
+		}
 	}
 	if cfg.LogLevel != "info" {
 		t.Errorf("LogLevel = %q, want %q", cfg.LogLevel, "info")
@@ -44,7 +67,8 @@ func TestLoad_Defaults(t *testing.T) {
 }
 
 func TestLoad_CustomValues(t *testing.T) {
-	t.Setenv("REST_ENDPOINT", "http://custom:8080/sync")
+	t.Setenv("INSTANCES_ENDPOINT", "http://custom:8080/sync")
+	t.Setenv("CAPABILITIES_ENDPOINT", "http://custom:8080/capabilities/scan")
 	t.Setenv("DEBOUNCE_WINDOW_MS", "5000")
 	t.Setenv("BATCH_FLUSH_INTERVAL_MS", "2000")
 	t.Setenv("BATCH_MAX_SIZE", "100")
@@ -55,8 +79,11 @@ func TestLoad_CustomValues(t *testing.T) {
 
 	cfg := Load()
 
-	if cfg.RESTEndpoint != "http://custom:8080/sync" {
-		t.Errorf("RESTEndpoint = %q, want custom", cfg.RESTEndpoint)
+	if cfg.InstancesEndpoint != "http://custom:8080/sync" {
+		t.Errorf("InstancesEndpoint = %q, want custom", cfg.InstancesEndpoint)
+	}
+	if cfg.CapabilitiesEndpoint != "http://custom:8080/capabilities/scan" {
+		t.Errorf("CapabilitiesEndpoint = %q, want custom", cfg.CapabilitiesEndpoint)
 	}
 	if cfg.DebounceWindow != 5*time.Second {
 		t.Errorf("DebounceWindow = %v, want 5s", cfg.DebounceWindow)

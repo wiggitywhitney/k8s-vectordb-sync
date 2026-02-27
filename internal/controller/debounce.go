@@ -18,6 +18,11 @@ type SyncPayload struct {
 	Deletes []string                    `json:"deletes"`
 }
 
+// IsEmpty reports whether the payload contains no changes.
+func (p SyncPayload) IsEmpty() bool {
+	return len(p.Upserts) == 0 && len(p.Deletes) == 0
+}
+
 // DebounceBuffer accumulates ResourceEvents from the watcher, deduplicates
 // them per resource ID (last-state-wins), and flushes batched payloads on
 // a configurable interval or when the batch size threshold is reached.

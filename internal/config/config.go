@@ -9,8 +9,11 @@ import (
 
 // Config holds all controller configuration loaded from environment variables.
 type Config struct {
-	// REST endpoint URL for cluster-whisperer
-	RESTEndpoint string
+	// Instance sync endpoint URL for cluster-whisperer
+	InstancesEndpoint string
+
+	// Capabilities scan endpoint URL for cluster-whisperer (empty = disabled)
+	CapabilitiesEndpoint string
 
 	// Debounce window per resource before flushing changes
 	DebounceWindow time.Duration
@@ -40,13 +43,14 @@ type Config struct {
 // Load reads configuration from environment variables with defaults per the PRD.
 func Load() Config {
 	return Config{
-		RESTEndpoint:         envOrDefault("REST_ENDPOINT", "http://localhost:3000/api/v1/instances/sync"),
+		InstancesEndpoint:    envOrDefault("INSTANCES_ENDPOINT", "http://localhost:3000/api/v1/instances/sync"),
+		CapabilitiesEndpoint: envOrDefault("CAPABILITIES_ENDPOINT", ""),
 		DebounceWindow:       envDurationMsOrDefault("DEBOUNCE_WINDOW_MS", 10000),
 		BatchFlushInterval:   envDurationMsOrDefault("BATCH_FLUSH_INTERVAL_MS", 5000),
 		BatchMaxSize:         envIntOrDefault("BATCH_MAX_SIZE", 50),
 		ResyncInterval:       envDurationMinOrDefault("RESYNC_INTERVAL_MIN", 1440),
 		WatchResourceTypes:   envCSVOrDefault("WATCH_RESOURCE_TYPES", nil),
-		ExcludeResourceTypes: envCSVOrDefault("EXCLUDE_RESOURCE_TYPES", []string{"events", "leases", "endpointslices"}),
+		ExcludeResourceTypes: envCSVOrDefault("EXCLUDE_RESOURCE_TYPES", []string{"events", "leases", "endpointslices", "componentstatuses", "customresourcedefinitions"}),
 		APIBindAddress:       envOrDefault("API_BIND_ADDRESS", ":8082"),
 		LogLevel:             envOrDefault("LOG_LEVEL", "info"),
 	}

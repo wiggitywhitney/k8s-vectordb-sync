@@ -4,19 +4,28 @@ Kubernetes controller that watches cluster resources via dynamic informers and s
 
 This controller is one half of a real-time resource sync pipeline. It watches Kubernetes for resource changes (create, update, delete), extracts lightweight metadata, and POSTs batched payloads to cluster-whisperer's REST endpoint. cluster-whisperer handles embedding generation and vector database storage, making resources searchable via natural language. Together, they keep cluster-whisperer's vector search tool up to date with what is currently running in the cluster.
 
+The controller also detects CRD (Custom Resource Definition) changes — when operators are installed or removed, it notifies cluster-whisperer so the capabilities collection stays current. This enables questions like "what certificate management capabilities does this cluster have?" to work immediately after installing cert-manager.
+
 The controller is a pure observer — it has no knowledge of the vector database, embeddings, or search. It watches Kubernetes and forwards metadata via HTTP.
 
 ## How It Works
 
 ```text
-Kubernetes Cluster                    cluster-whisperer              Vector DB
-┌──────────────────┐                 ┌─────────────────┐          ┌──────────┐
-│  Resource Events  │   HTTP POST    │  REST Endpoint   │  embed   │ ChromaDB │
-│  (add/update/del) │──────────────> │  /instances/sync │────────> │instances │
-│                   │   debounced    │                  │  store   │collection│
-│  Dynamic Informers│   + batched    │  instanceToDoc() │          │          │
-└──────────────────┘                 └─────────────────┘          └──────────┘
+Kubernetes Cluster          k8s-vectordb-sync           cluster-whisperer          Vector DB
+┌──────────────────┐        ┌───────────────────┐       ┌─────────────────┐      ┌──────────┐
+│ Resource Events  │        │                   │ POST  │ REST Endpoint   │embed │ ChromaDB │
+│ (instances)      ├──────> │ Instance Pipeline ├─────> │ /instances/sync ├────> │instances │
+│                  │debounce│ (metadata extract) │       │ instanceToDoc() │store │collection│
+├──────────────────┤        ├───────────────────┤       ├─────────────────┤      ├──────────┤
+│ CRD Events       │        │                   │ POST  │ REST Endpoint   │infer │ ChromaDB │
+│ (add/delete)     ├──────> │ CRD Pipeline      ├─────> │ /capabilities/  ├────> │capabilit.│
+│                  │debounce│ (CRD names only)  │       │ scan            │store │collection│
+└──────────────────┘ batch  └───────────────────┘       └─────────────────┘      └──────────┘
 ```
+
+The controller runs two parallel pipelines:
+
+### Instance Pipeline
 
 1. **Watch** — Dynamic informers discover and watch configurable resource types across the cluster.
 2. **Extract** — Lightweight metadata is pulled from each resource, including namespace, name, kind, labels, and description annotations.
@@ -26,6 +35,16 @@ Kubernetes Cluster                    cluster-whisperer              Vector DB
 6. **Resync** — A periodic full resync ensures eventual consistency.
 
 Delete events bypass the debounce window and are forwarded immediately to minimize stale data in search results.
+
+### CRD Pipeline
+
+When `CAPABILITIES_ENDPOINT` is configured, the controller also watches for CRD changes:
+
+1. **Detect** — CRD add and delete events are identified and routed to a separate pipeline. CRD update events are ignored (CRD spec changes are rare, and the inference pipeline is idempotent).
+2. **Debounce/Batch** — CRD add events are debounced and batched, since operator installs land many CRDs at once (e.g., cert-manager adds 6 CRDs). CRD deletes bypass the debounce window and are forwarded immediately.
+3. **Send** — Batched CRD names are POSTed to cluster-whisperer's capabilities scan endpoint, which runs schema discovery and LLM inference to populate the capabilities collection.
+
+The CRD pipeline is disabled by default. Set `CAPABILITIES_ENDPOINT` to enable it.
 
 ## Quick Start
 
@@ -41,8 +60,11 @@ Delete events bypass the debounce window and are forwarded immediately to minimi
 helm install k8s-vectordb-sync charts/k8s-vectordb-sync \
   --namespace k8s-vectordb-sync-system \
   --create-namespace \
-  --set config.restEndpoint=http://cluster-whisperer:3000/api/v1/instances/sync
+  --set config.instancesEndpoint=http://cluster-whisperer:3000/api/v1/instances/sync \
+  --set config.capabilitiesEndpoint=http://cluster-whisperer:3000/api/v1/capabilities/scan
 ```
+
+To deploy without CRD detection (instance sync only), omit the `capabilitiesEndpoint` flag.
 
 Verify the controller is running:
 
@@ -56,15 +78,18 @@ The controller starts watching resources immediately after the pod becomes ready
 
 All configuration is through environment variables. When deploying with Helm, these are set via `values.yaml` under `config.*`.
 
+> **Migration note**: `REST_ENDPOINT` was renamed to `INSTANCES_ENDPOINT` in v0.1.0. If upgrading from an earlier version, update your Helm values or environment variables to use `INSTANCES_ENDPOINT` instead. There is no backward-compatibility fallback.
+
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `REST_ENDPOINT` | `http://localhost:3000/api/v1/instances/sync` | cluster-whisperer REST URL |
+| `INSTANCES_ENDPOINT` | `http://localhost:3000/api/v1/instances/sync` | cluster-whisperer instance sync URL |
+| `CAPABILITIES_ENDPOINT` | *(empty = disabled)* | cluster-whisperer capabilities scan URL |
 | `DEBOUNCE_WINDOW_MS` | `10000` | How long to wait (in milliseconds) after a resource changes before syncing it. If the resource changes again during this window, the timer resets. |
 | `BATCH_FLUSH_INTERVAL_MS` | `5000` | Maximum time in milliseconds before sending accumulated changes, even if the batch is not full. |
 | `BATCH_MAX_SIZE` | `50` | Maximum number of upserts in a single payload. When this limit is reached, the batch is sent immediately. |
 | `RESYNC_INTERVAL_MIN` | `1440` | How often (in minutes) the controller performs a full resync of all resources. The default is 24 hours. |
 | `WATCH_RESOURCE_TYPES` | *(empty = all)* | Comma-separated list of resource types to watch. When empty, the controller watches all discoverable types. |
-| `EXCLUDE_RESOURCE_TYPES` | `events,leases,endpointslices` | Comma-separated list of resource types to skip. These are excluded because they change frequently and have low value for semantic search. |
+| `EXCLUDE_RESOURCE_TYPES` | `events,leases,endpointslices,componentstatuses,customresourcedefinitions` | Comma-separated list of resource types to skip. These are excluded because they change frequently and have low value for semantic search. CRDs are excluded from the instance pipeline because they are type definitions, not running workloads — CRD changes are routed to the capabilities pipeline instead. |
 | `API_BIND_ADDRESS` | `:8082` | Bind address for the resync trigger API. |
 | `LOG_LEVEL` | `info` | Logging verbosity. |
 
@@ -77,7 +102,7 @@ By default, the controller watches all discoverable resource types except high-c
 helm install k8s-vectordb-sync charts/k8s-vectordb-sync \
   --namespace k8s-vectordb-sync-system \
   --create-namespace \
-  --set config.restEndpoint=http://cluster-whisperer:3000/api/v1/instances/sync \
+  --set config.instancesEndpoint=http://cluster-whisperer:3000/api/v1/instances/sync \
   --set config.watchResourceTypes="deployments,services,statefulsets,configmaps"
 ```
 
@@ -115,6 +140,32 @@ The controller POSTs JSON payloads to cluster-whisperer's `/api/v1/instances/syn
 ```
 
 cluster-whisperer receives this payload, generates embeddings for each resource, and stores them in ChromaDB. The controller does not need to know anything about how embedding or storage works.
+
+### CRD Payload Format
+
+When the CRD pipeline is enabled, the controller POSTs CRD changes to the `/api/v1/capabilities/scan` endpoint. The payload contains only CRD fully-qualified names — cluster-whisperer handles schema discovery and capability inference.
+
+**Add events** (batched — operator installs land many CRDs at once):
+
+```json
+{
+  "upserts": [
+    "certificates.cert-manager.io",
+    "issuers.cert-manager.io",
+    "clusterissuers.cert-manager.io"
+  ]
+}
+```
+
+**Delete events** (immediate — stale capabilities are worse than extra API calls):
+
+```json
+{
+  "deletes": [
+    "certificates.cert-manager.io"
+  ]
+}
+```
 
 ### Starting cluster-whisperer
 

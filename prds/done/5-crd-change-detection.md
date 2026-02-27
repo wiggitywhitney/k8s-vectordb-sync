@@ -1,7 +1,8 @@
 # PRD #5: CRD Change Detection for Capabilities Sync
 
-**Status**: Open
+**Status**: Complete
 **Created**: 2026-02-25
+**Completed**: 2026-02-26
 **GitHub Issue**: [#5](https://github.com/wiggitywhitney/k8s-vectordb-sync/issues/5)
 
 ---
@@ -52,7 +53,7 @@ Kubernetes Cluster          k8s-vectordb-sync           cluster-whisperer       
 **Add/Update** (batched, POST to capabilities endpoint):
 ```json
 {
-  "added": [
+  "upserts": [
     "certificates.cert-manager.io",
     "issuers.cert-manager.io",
     "clusterissuers.cert-manager.io"
@@ -63,7 +64,7 @@ Kubernetes Cluster          k8s-vectordb-sync           cluster-whisperer       
 **Delete** (immediate, POST to capabilities endpoint):
 ```json
 {
-  "deleted": [
+  "deletes": [
     "certificates.cert-manager.io"
   ]
 }
@@ -75,21 +76,21 @@ The payload is intentionally minimal — just CRD names. cluster-whisperer alrea
 
 ## Success Criteria
 
-- [ ] Controller detects CRD add events and POSTs CRD names to the capabilities endpoint
-- [ ] Controller detects CRD delete events and POSTs deletions immediately (bypass debounce)
-- [ ] CRD add events are debounced/batched (operator installs land many CRDs at once)
-- [ ] CRD events are routed to the capabilities endpoint, not the instance sync endpoint
-- [ ] `REST_ENDPOINT` renamed to `INSTANCES_ENDPOINT` (breaking change, v0.1.0)
-- [ ] New `CAPABILITIES_ENDPOINT` config env var (separate from `INSTANCES_ENDPOINT`)
-- [ ] Helm chart updated with both renamed and new configuration options
-- [ ] All three test tiers pass (unit, integration, e2e)
-- [ ] End-to-end: install a CRD → controller detects → capabilities endpoint receives CRD name
-- [ ] Full-stack validation: install real operators (CloudNativePG, Redis, MongoDB) → CRDs appear in vector DB with inferred descriptions
-- [ ] README updated with new functionality using `/write-docs` skill
+- [x] Controller detects CRD add events and POSTs CRD names to the capabilities endpoint
+- [x] Controller detects CRD delete events and POSTs deletions immediately (bypass debounce)
+- [x] CRD add events are debounced/batched (operator installs land many CRDs at once)
+- [x] CRD events are routed to the capabilities endpoint, not the instance sync endpoint
+- [x] `REST_ENDPOINT` renamed to `INSTANCES_ENDPOINT` (breaking change, v0.1.0)
+- [x] New `CAPABILITIES_ENDPOINT` config env var (separate from `INSTANCES_ENDPOINT`)
+- [x] Helm chart updated with both renamed and new configuration options
+- [x] All three test tiers pass (unit, integration, e2e)
+- [x] End-to-end: install a CRD → controller detects → capabilities endpoint receives CRD name
+- [x] Full-stack validation: install real operators (CloudNativePG, Redis, MongoDB) → CRDs appear in vector DB with inferred descriptions
+- [x] README updated with new functionality using `/write-docs` skill
 
 ## Milestones
 
-- [ ] **M1**: Endpoint Rename & CRD Event Detection
+- [x] **M1**: Endpoint Rename & CRD Event Detection
   - Rename `REST_ENDPOINT` → `INSTANCES_ENDPOINT` across codebase (config, Helm chart, README, tests, CI)
   - Clean break — no deprecation fallback (v0.1.0, single user)
   - Identify CRD resources (`customresourcedefinitions.apiextensions.k8s.io`) in the event stream
@@ -98,23 +99,23 @@ The payload is intentionally minimal — just CRD names. cluster-whisperer alrea
   - Add CRDs to `EXCLUDE_RESOURCE_TYPES` default list so they don't flow through the instance pipeline
   - Unit tests for CRD identification, name extraction, and routing logic
 
-- [ ] **M2**: CRD Debounce, Batching & REST Client
+- [x] **M2**: CRD Debounce, Batching & REST Client
   - CRD-specific debounce buffer that batches add events (reuses same debounce pattern)
   - CRD delete events bypass debounce (immediate forwarding)
-  - REST client for the capabilities endpoint with the CRD payload format (`added`/`deleted` arrays)
+  - REST client for the capabilities endpoint with the CRD payload format (`upserts`/`deletes` arrays)
   - New `CAPABILITIES_ENDPOINT` config env var (default: empty string = feature disabled)
   - Retry logic matching existing REST client (exponential backoff, no-retry on 4xx)
   - Unit tests for CRD debounce behavior, payload assembly, and REST client
   - Integration tests for CRD event → debounce → REST POST pipeline
 
-- [ ] **M3**: Configuration, Deployment & Documentation
+- [x] **M3**: Configuration, Deployment & Documentation
   - Helm chart updated with `CAPABILITIES_ENDPOINT` in values.yaml
   - Feature is disabled by default (empty endpoint = no CRD event forwarding)
   - E2E tests in CI: install CRD in Kind cluster → verify controller POSTs to mock capabilities endpoint
   - All test tiers green
   - README updated using `/write-docs` skill with new architecture diagram, configuration reference, and CRD detection feature documentation
 
-- [ ] **M4**: Full-Stack Validation with Real Operators
+- [x] **M4**: Full-Stack Validation with Real Operators
   - Cross-repo validation script that runs the full pipeline against real cluster-whisperer + ChromaDB
   - Install real operators one at a time into a Kind cluster and verify each operator's CRDs appear in the capabilities collection with inferred descriptions:
     1. **CloudNativePG** — `helm install cnpg cnpg/cloudnative-pg` → verify CRDs (e.g., `clusters.postgresql.cnpg.io`) have capability entries in vector DB
@@ -189,6 +190,8 @@ This PRD covers only the k8s-vectordb-sync side.
 | 2026-02-25 | Reuse debounce/batch pattern over custom CRD batching | Operator installs land many CRDs at once (cert-manager: 6, Prometheus: 8+). Same coalescing logic applies. Separate buffer instance keeps CRD and instance batches independent. |
 | 2026-02-25 | Skip CRD update events | CRD spec changes (adding fields, changing versions) are rare. The capability inference pipeline is idempotent — periodic resync or manual trigger handles schema updates. Avoids complexity of diffing CRD specs. |
 | 2026-02-25 | Env var config over Viktor's CapabilityScanConfig CRD | Consistent with the instance-sync controller's approach. CRD-based config adds complexity (defining, generating, reconciling) that isn't needed for this feature. It can be added later if needed. |
+| 2026-02-25 | CRD GVR always discovered when capabilities pipeline enabled | The resource filter (allowlist/blocklist) controls instance pipeline discovery. CRDs are in the default exclusion list and would also be missed in allowlist mode. The watcher's `watchCRDs` flag ensures the CRD informer is always created when `CAPABILITIES_ENDPOINT` is set, regardless of filter settings. |
+| 2026-02-26 | CRD payload uses `upserts`/`deletes` (not `added`/`deleted`) | Consistent API surface — the instance sync endpoint already uses `upserts`/`deletes`. Both endpoints on the same server, consumed by the same client, should use the same field names. |
 
 ---
 
@@ -196,4 +199,7 @@ This PRD covers only the k8s-vectordb-sync side.
 
 | Date | Milestone | Notes |
 |------|-----------|-------|
-| | | |
+| 2026-02-25 | M1 complete | Renamed REST_ENDPOINT → INSTANCES_ENDPOINT across 9 files, added CAPABILITIES_ENDPOINT config, implemented CRD event detection with IsCRD() + CrdEvents channel routing, added customresourcedefinitions to default exclusions, 9 new unit tests |
+| 2026-02-25 | M2 complete | CrdDebounceBuffer with add debounce/batch and delete bypass, CrdSyncPayload type (upserts/deletes arrays), Payload interface on REST client for reuse across both pipelines, CRD pipeline wired in main.go gated on CAPABILITIES_ENDPOINT, 12 new unit tests, 4 integration tests |
+| 2026-02-25 | M3 complete | Mock server updated with capabilities scan endpoint, E2E tests for CRD add/delete detection against Kind cluster (6/6 tests pass), watcher fix to always discover CRDs when capabilities pipeline enabled (bypasses filter in allowlist mode), README updated with dual-pipeline architecture diagram, CRD payload format docs, and updated Helm deploy example |
+| 2026-02-26 | M4 complete | Full-stack validation script (`test/fullstack/validate.sh`) with `make test-fullstack` target. Validated against Spider Rainbows Kind cluster with real cluster-whisperer + ChromaDB: CloudNativePG (10/10 CRDs), Redis Operator (4/4 CRDs), MongoDB Community (1/1 CRD) all produced capabilities with LLM-inferred descriptions. Uninstall verification confirmed capability removal from ChromaDB. Also wired capabilities pipeline into cluster-whisperer serve command (separate repo commit). |

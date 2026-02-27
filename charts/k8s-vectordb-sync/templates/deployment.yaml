@@ -41,8 +41,10 @@ spec:
             - --leader-elect
             {{- end }}
           env:
-            - name: REST_ENDPOINT
-              value: {{ .Values.config.restEndpoint | quote }}
+            - name: INSTANCES_ENDPOINT
+              value: {{ .Values.config.instancesEndpoint | quote }}
+            - name: CAPABILITIES_ENDPOINT
+              value: {{ .Values.config.capabilitiesEndpoint | quote }}
             - name: DEBOUNCE_WINDOW_MS
               value: {{ .Values.config.debounceWindowMs | quote }}
             - name: BATCH_FLUSH_INTERVAL_MS

@@ -8,14 +8,20 @@ import (
 	"math"
 	"math/rand/v2"
 	"net/http"
+	"reflect"
 	"time"
 
 	"github.com/go-logr/logr"
-
-	"github.com/wiggitywhitney/k8s-vectordb-sync/internal/controller"
 )
 
-// RESTClient sends SyncPayloads to the cluster-whisperer REST API.
+// Payload is any JSON-serializable payload that can report whether it's empty.
+// Both SyncPayload (instance pipeline) and CrdSyncPayload (capabilities pipeline)
+// implement this interface.
+type Payload interface {
+	IsEmpty() bool
+}
+
+// RESTClient sends payloads to the cluster-whisperer REST API.
 type RESTClient struct {
 	log        logr.Logger
 	endpoint   string
@@ -55,7 +61,7 @@ func WithRetry(maxRetries int, initialDelay, maxDelay time.Duration) Option {
 	}
 }
 
-// New creates a RESTClient that POSTs SyncPayloads to the given endpoint.
+// New creates a RESTClient that POSTs payloads to the given endpoint.
 func New(log logr.Logger, endpoint string, opts ...Option) *RESTClient {
 	c := &RESTClient{
 		log:          log,
@@ -71,10 +77,10 @@ func New(log logr.Logger, endpoint string, opts ...Option) *RESTClient {
 	return c
 }
 
-// Send POSTs a SyncPayload to the configured endpoint with retry logic.
-// Empty payloads (no upserts and no deletes) are skipped.
-func (c *RESTClient) Send(ctx context.Context, payload controller.SyncPayload) error {
-	if len(payload.Upserts) == 0 && len(payload.Deletes) == 0 {
+// Send POSTs a payload to the configured endpoint with retry logic.
+// Empty payloads are skipped (determined by the Payload.IsEmpty() method).
+func (c *RESTClient) Send(ctx context.Context, payload Payload) error {
+	if payload == nil || isNilPayload(payload) || payload.IsEmpty() {
 		return nil
 	}
 
@@ -167,6 +173,13 @@ type serverError struct {
 
 func (e *serverError) Error() string {
 	return fmt.Sprintf("server error: HTTP %d", e.statusCode)
+}
+
+// isNilPayload detects typed nil pointers passed through the Payload interface.
+// A plain nil check (payload == nil) misses these since the interface wrapper is non-nil.
+func isNilPayload(p Payload) bool {
+	v := reflect.ValueOf(p)
+	return v.Kind() == reflect.Ptr && v.IsNil()
 }
 
 // isClientError checks if the error is a non-retryable client error (4xx).
