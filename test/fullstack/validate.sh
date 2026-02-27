@@ -458,7 +458,7 @@ cleanup() {
   for op_def in "${OPERATORS[@]}"; do
     parse_operator "$op_def"
     # Only uninstall if the helm release exists
-    if helm list -n "$OP_NAMESPACE" 2>/dev/null | grep -q "$OP_REPO_NAME"; then
+    if helm status "$OP_REPO_NAME" -n "$OP_NAMESPACE" &>/dev/null; then
       uninstall_operator "$op_def" || true
     fi
   done
