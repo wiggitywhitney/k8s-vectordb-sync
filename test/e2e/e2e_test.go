@@ -83,8 +83,12 @@ type resourceInstance struct {
 	CreatedAt   string            `json:"createdAt"`
 }
 
+// controllerPodName is set by verifyControllerRunning and referenced by
+// AfterAll cleanup to dump logs on failure. Package-level so the
+// package-level verifyControllerRunning helper can assign it.
+var controllerPodName string
+
 var _ = Describe("Manager", Ordered, func() {
-	var controllerPodName string
 
 	// Before running the tests, set up the environment by creating the namespace,
 	// enforce the restricted security policy to the namespace, installing CRDs,
