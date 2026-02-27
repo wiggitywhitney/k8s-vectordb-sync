@@ -79,7 +79,7 @@ func New(log logr.Logger, endpoint string, opts ...Option) *RESTClient {
 // Send POSTs a payload to the configured endpoint with retry logic.
 // Empty payloads are skipped (determined by the Payload.IsEmpty() method).
 func (c *RESTClient) Send(ctx context.Context, payload Payload) error {
-	if payload.IsEmpty() {
+	if payload == nil || payload.IsEmpty() {
 		return nil
 	}
 

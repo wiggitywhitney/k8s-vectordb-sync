@@ -303,6 +303,26 @@ func TestRESTClient_SendsCrdSyncPayload(t *testing.T) {
 	}
 }
 
+func TestRESTClient_SkipsNilPayload(t *testing.T) {
+	var called atomic.Bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		called.Store(true)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	client := New(logr.Discard(), server.URL, WithTimeout(5*time.Second))
+
+	err := client.Send(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("Send should not error on nil payload: %v", err)
+	}
+
+	if called.Load() {
+		t.Error("Should not have made HTTP request for nil payload")
+	}
+}
+
 func TestRESTClient_SkipsEmptyCrdPayload(t *testing.T) {
 	var called atomic.Bool
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
