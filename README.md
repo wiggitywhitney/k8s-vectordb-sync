@@ -54,7 +54,7 @@ Published on Docker Hub: [`wiggitywhitney/k8s-vectordb-sync`](https://hub.docker
 docker pull wiggitywhitney/k8s-vectordb-sync:0.1.0
 ```
 
-The image is a statically-linked Go binary on [distroless](https://github.com/GoogleContainerTools/distroless), running as non-root. Built for `linux/amd64`.
+The image is a statically-linked Go binary on [distroless](https://github.com/GoogleContainerTools/distroless), running as non-root. The `0.1.0` release is published for `linux/amd64`. The Dockerfile supports multi-arch builds (amd64, arm64) via `docker buildx`.
 
 ## Quick Start
 
