@@ -46,6 +46,16 @@ When `CAPABILITIES_ENDPOINT` is configured, the controller also watches for CRD 
 
 The CRD pipeline is disabled by default. Set `CAPABILITIES_ENDPOINT` to enable it.
 
+## Container Image
+
+Published on Docker Hub: [`wiggitywhitney/k8s-vectordb-sync`](https://hub.docker.com/r/wiggitywhitney/k8s-vectordb-sync)
+
+```bash
+docker pull wiggitywhitney/k8s-vectordb-sync:0.1.0
+```
+
+The image is a statically-linked Go binary on [distroless](https://github.com/GoogleContainerTools/distroless), running as non-root. The `0.1.0` release is published for `linux/amd64`. The Dockerfile supports multi-arch builds (amd64, arm64) via `docker buildx`.
+
 ## Quick Start
 
 ### Prerequisites
@@ -60,6 +70,8 @@ The CRD pipeline is disabled by default. Set `CAPABILITIES_ENDPOINT` to enable i
 helm install k8s-vectordb-sync charts/k8s-vectordb-sync \
   --namespace k8s-vectordb-sync-system \
   --create-namespace \
+  --set image.repository=wiggitywhitney/k8s-vectordb-sync \
+  --set image.tag=0.1.0 \
   --set config.instancesEndpoint=http://cluster-whisperer:3000/api/v1/instances/sync \
   --set config.capabilitiesEndpoint=http://cluster-whisperer:3000/api/v1/capabilities/scan
 ```
@@ -102,6 +114,8 @@ By default, the controller watches all discoverable resource types except high-c
 helm install k8s-vectordb-sync charts/k8s-vectordb-sync \
   --namespace k8s-vectordb-sync-system \
   --create-namespace \
+  --set image.repository=wiggitywhitney/k8s-vectordb-sync \
+  --set image.tag=0.1.0 \
   --set config.instancesEndpoint=http://cluster-whisperer:3000/api/v1/instances/sync \
   --set config.watchResourceTypes="deployments,services,statefulsets,configmaps"
 ```
